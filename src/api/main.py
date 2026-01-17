@@ -1,0 +1,232 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from concurrent.futures import ThreadPoolExecutor
+from src.crm.database import init_db, get_session, EmailAccount
+from datetime import datetime, timedelta
+import logging
+import asyncio
+from .routers import customers, auth
+from .routers import orders
+from .routers import emails
+from .routers import followups
+from .routers import templates
+from .routers import campaigns
+from .routers import analytics
+from .routers import custom_fields
+from .routers import leads
+from .routers import email_accounts
+from .routers import ai_assistant
+from .routers import quick_replies
+from .routers import signatures
+from .routers import products
+from .routers import knowledge
+from .routers import vector_knowledge
+from .routers import prompt_templates  # 🔥 新增：提示词模板路由
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# 创建调度器和线程池
+scheduler = AsyncIOScheduler()
+thread_pool = ThreadPoolExecutor(max_workers=3)  # 最多3个并发同步任务
+
+
+def sync_account_worker(account_id: int, email_address: str, sync_mode: str, is_first_sync: bool):
+    """工作线程：在独立线程中执行邮件同步，不阻塞主线程"""
+    from .routers.email_accounts import sync_emails_background
+    from datetime import datetime, timedelta
+    
+    try:
+        logger.info(f"🔄 [线程] 开始同步账户: {email_address} (模式: {sync_mode})")
+        
+        # 根据同步模式决定参数
+        only_unseen = True
+        since_date = None
+        limit = 50  # 自动同步默认50封
+        
+        if sync_mode == 'unread_only':
+            # 只同步未读邮件
+            only_unseen = True
+            since_date = None
+        elif sync_mode == 'recent_30days':
+            # 同步最近30天的所有邮件
+            only_unseen = False
+            since_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+        elif sync_mode == 'all':
+            # 同步所有邮件（不推荐，只用于手动触发）
+            only_unseen = False
+            since_date = None
+        
+        # 首次同步：强制限制为最近30天
+        if is_first_sync and not since_date:
+            since_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+            logger.info(f"   首次同步，限制为最近30天: {since_date}")
+        
+        sync_emails_background(
+            account_id=account_id,
+            limit=limit,
+            only_unseen=only_unseen,
+            since_date=since_date
+        )
+        logger.info(f"✅ [线程] 账户同步完成: {email_address}")
+    except Exception as e:
+        logger.error(f"❌ [线程] 账户同步失败: {email_address} - {str(e)}")
+
+
+async def auto_sync_emails():
+    """自动同步邮件任务 - 异步检查并提交到线程池执行"""
+    logger.info("🔄 开始自动同步邮件检查...")
+    
+    # 使用 asyncio 的线程池执行数据库查询，避免阻塞
+    loop = asyncio.get_event_loop()
+    
+    try:
+        # 在线程池中执行数据库查询
+        accounts = await loop.run_in_executor(
+            None,
+            lambda: get_accounts_to_sync()
+        )
+        
+        logger.info(f"找到 {len(accounts)} 个需要同步的账户")
+        
+        # 为每个账户提交异步同步任务到线程池
+        for account in accounts:
+            loop.run_in_executor(
+                thread_pool,
+                sync_account_worker,
+                account['id'],
+                account['email'],
+                account['sync_mode'],
+                account['is_first_sync']
+            )
+            logger.info(f"📤 已提交同步任务: {account['email']} (模式: {account['sync_mode']})")
+                
+    except Exception as e:
+        logger.error(f"自动同步任务异常: {str(e)}")
+
+
+def get_accounts_to_sync():
+    """获取需要同步的账户列表（在线程池中执行）"""
+    db = get_session()
+    accounts_to_sync = []
+    
+    try:
+        # 获取所有启用自动同步的账户
+        accounts = db.query(EmailAccount).filter(
+            EmailAccount.is_active == True,
+            EmailAccount.auto_sync == True
+        ).all()
+        
+        for account in accounts:
+            try:
+                # 检查是否需要同步
+                should_sync = False
+                
+                if account.last_sync_at is None:
+                    should_sync = True
+                else:
+                    time_since_last_sync = datetime.utcnow() - account.last_sync_at
+                    minutes_since_sync = time_since_last_sync.total_seconds() / 60
+                    
+                    if minutes_since_sync >= account.sync_interval:
+                        should_sync = True
+                
+                if should_sync:
+                    accounts_to_sync.append({
+                        'id': account.id,
+                        'email': account.email_address,
+                        'sync_mode': account.sync_mode or 'unread_only',
+                        'is_first_sync': not account.first_sync_completed
+                    })
+                    
+            except Exception as e:
+                logger.error(f"检查账户失败: {account.email_address} - {str(e)}")
+                
+    finally:
+        db.close()
+    
+    return accounts_to_sync
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    logger.info("🚀 启动 FastAPI 应用...")
+    init_db()
+    
+    # 启动调度器
+    scheduler.add_job(
+        auto_sync_emails,
+        'interval',
+        minutes=5,  # 每5分钟检查一次（实际同步间隔由sync_interval控制）
+        id='auto_sync_emails',
+        replace_existing=True
+    )
+    scheduler.start()
+    logger.info("✅ 邮件自动同步调度器已启动（异步模式，每5分钟检查一次）")
+    logger.info(f"   线程池大小: {thread_pool._max_workers} 个工作线程")
+    
+    yield
+    
+    # 关闭时
+    scheduler.shutdown()
+    thread_pool.shutdown(wait=True)  # 等待所有同步任务完成
+    logger.info("⏹️ 调度器和线程池已关闭")
+
+
+app = FastAPI(
+    title="外贸CRM系统 API",
+    version="0.1.0",
+    lifespan=lifespan
+)
+
+# 🔥 启用 CORS 以便前端 React Admin 调用
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许所有来源
+    allow_credentials=False,  # 当 allow_origins=["*"] 时必须为 False
+    allow_methods=["*"],  # 允许所有方法
+    allow_headers=["*"],  # 允许所有头部
+    expose_headers=["Content-Range", "X-Total-Count", "Access-Control-Expose-Headers"],  # 暴露特定头部
+)
+
+# 🔥 添加中间件打印请求信息
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"📥 收到请求: {request.method} {request.url}")
+    print(f"   Origin: {request.headers.get('origin', 'None')}")
+    response = await call_next(request)
+    print(f"📤 响应状态: {response.status_code}")
+    return response
+
+# 初始化数据库（沿用现有 SQLite/SQLAlchemy）
+init_db()
+
+# 路由
+app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
+app.include_router(customers.router, prefix="/api", tags=["customers"]) 
+app.include_router(orders.router, prefix="/api", tags=["orders"]) 
+app.include_router(emails.router, prefix="/api", tags=["email_history"]) 
+app.include_router(followups.router, prefix="/api", tags=["followup_records"]) 
+app.include_router(templates.router, prefix="/api", tags=["email_templates"]) 
+app.include_router(campaigns.router, prefix="/api", tags=["email_campaigns"]) 
+app.include_router(analytics.router, prefix="/api", tags=["analytics"]) 
+app.include_router(custom_fields.router, prefix="/api", tags=["custom_fields"])
+app.include_router(leads.router, prefix="/api", tags=["leads"])
+app.include_router(email_accounts.router, prefix="/api", tags=["email_accounts"])
+app.include_router(ai_assistant.router, prefix="/api", tags=["AI助手"])
+app.include_router(quick_replies.router, prefix="/api", tags=["快捷回复"]) 
+app.include_router(signatures.router, tags=["邮件签名"]) 
+app.include_router(products.router, prefix="/api", tags=["产品知识库"])
+app.include_router(knowledge.router, prefix="/api", tags=["知识库管理"]) 
+app.include_router(vector_knowledge.router, prefix="/api", tags=["向量知识库"]) 
+app.include_router(prompt_templates.router, prefix="/api", tags=["提示词模板"])  # 🔥 新增 
+
+# 健康检查
+@app.get("/health")
+def health():
+    return {"status": "ok"}
