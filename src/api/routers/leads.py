@@ -33,13 +33,15 @@ def parse_sort_header(sort_header: Optional[str]) -> tuple:
 
 @router.get("/leads")
 def get_leads(
-    range: Optional[str] = Header(None),
-    sort: Optional[str] = Header(None),
-    filter: Optional[str] = Header(None)
+    range: Optional[str] = None,
+    sort: Optional[str] = None,
+    filter: Optional[str] = None
 ):
     """获取线索列表"""
     from fastapi.responses import Response
     db = get_session()
+    
+    print(f"📋 线索API收到参数: range={range}, sort={sort}, filter={filter}")
     
     # 解析参数
     start, end = parse_range_header(range)

@@ -16,4 +16,4 @@ Write-Host ""
 
 # 激活虚拟环境并启动
 .\.venv\Scripts\Activate.ps1
-uvicorn src.api.main:app --host 0.0.0.0 --port 8001 --reload
+uvicorn src.api.main:app --host 0.0.0.0 --port 8001

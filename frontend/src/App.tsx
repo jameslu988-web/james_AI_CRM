@@ -15,6 +15,7 @@ import { CampaignList, CampaignCreate, CampaignEdit } from './campaigns'
 import { EmailAccountList, EmailAccountEdit, EmailAccountShow } from './emailAccounts'
 import { SignatureList, SignatureCreate, SignatureEdit } from './signatures'
 import { SystemSettings } from './systemSettings'
+import { ProxySettings } from './proxySettings'
 import { CustomLayout } from './CustomLayout'
 import { ProductList, ProductCreate, ProductEdit } from './products'
 import { FAQList, FAQCreate, FAQEdit } from './faqs'
@@ -53,6 +54,7 @@ export default function App() {
       <CustomRoutes>
         <Route path="/customer-settings" element={<CustomerSettings />} />
         <Route path="/system-settings" element={<SystemSettings />} />
+        <Route path="/proxy-settings" element={<ProxySettings />} />
         <Route path="/email_trash" element={<EmailTrashList />} />
       </CustomRoutes>
     </Admin>

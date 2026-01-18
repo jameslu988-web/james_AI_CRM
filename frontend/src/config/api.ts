@@ -7,11 +7,11 @@
 
 // API基础URL配置
 const API_BASE_URLS = {
-  // 邮件系统后端 (端口 8001) - 🔥 使用相对路径，通过Vite代理转发
-  email: '/api',
+  // 邮件系统后端 (端口 8001) - 🔥 统一使用8001端口
+  email: 'http://127.0.0.1:8001/api',
   
-  // CRM系统后端 (端口 8002)
-  crm: 'http://127.0.0.1:8002/api',
+  // CRM系统后端 (端口 8001) - 所有API都在同一个FastAPI应用中
+  crm: 'http://127.0.0.1:8001/api',
 } as const
 
 /**

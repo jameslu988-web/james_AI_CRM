@@ -89,7 +89,23 @@ def sync_emails_task(self, account_id: int, limit: int = 100, only_unseen: bool 
                 )
                 
                 db.add(email_history)
-                db.flush()  # 确保获取到邮件ID
+                db.flush()  # 确保获取到数据库生成的自增 ID (email_history.id)
+
+                # 🔥 新增：使用正确的数据库 ID 处理正文图片
+                if email_history.html_body and email_data.get('inline_images'):
+                    print(f"🖼️ 处理正文图片: 使用数据库ID={email_history.id}")
+                    try:
+                        # 调用 receiver 的图片处理方法，使用正确的数据库 ID
+                        processed_html = receiver._process_html_images(
+                            email_history.html_body, 
+                            str(email_history.id),  # 使用数据库 ID，而不是 IMAP ID
+                            email_data.get('inline_images', {})
+                        )
+                        email_history.html_body = processed_html
+                        print(f"✅ 图片路径处理完成: 邮件ID={email_history.id}")
+                    except Exception as img_err:
+                        print(f"⚠️ 图片处理失败: {str(img_err)}")
+
                 emails_saved += 1
                 
                 # 🔥 关键：自动触发AI分析（异步）

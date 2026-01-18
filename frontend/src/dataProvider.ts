@@ -6,8 +6,6 @@ const apiUrl = EMAIL_API_BASE
 
 // 自定义httpClient，在每个请求中添加JWT令牌
 const httpClient = (url: string, options: any = {}) => {
-  console.log('=== HTTP Request ===', { url, method: options.method, body: options.body?.substring(0, 200) })
-  
   if (!options.headers) {
     options.headers = new Headers({ Accept: 'application/json' })
   }
@@ -18,30 +16,24 @@ const httpClient = (url: string, options: any = {}) => {
     options.headers.set('Authorization', `Bearer ${token}`)
   }
   
-  return fetchUtils.fetchJson(url, options).then(response => {
-    console.log('=== HTTP Response ===', { url, status: response.status })
-    return response
-  })
+  return fetchUtils.fetchJson(url, options)
 }
 
 // 使用自定义httpClient创建dataProvider
 const baseDataProvider = simpleRestProvider(apiUrl, httpClient)
 
-// 扩展dataProvider以支持向量知识库和提示词模板
+// 扩展dataProvider以支持特殊资源
 export const dataProvider = {
   ...baseDataProvider,
   
-  // 覆盖getList方法，处理向量知识库和提示词模板的特殊路由
+  // 覆盖getList方法
   getList: (resource: string, params: any) => {
-    console.log('📋 dataProvider.getList 被调用', { resource, params })
-    
-    // 🔥 将独立的邮件资源映射到 email_history API
+    // 邮件资源特殊处理
     const emailResources = ['inbox', 'sent', 'drafts', 'email_history']
     if (emailResources.includes(resource)) {
       const { page, perPage } = params.pagination
       const { field, order } = params.sort
       
-      // 构建 URL 参数
       const query: any = {
         _start: (page - 1) * perPage,
         _end: page * perPage,
@@ -49,24 +41,21 @@ export const dataProvider = {
         _order: order,
       }
       
-      // 添加筛选参数
+      // 添加筛选参数（排除空值）
       if (params.filter) {
         Object.keys(params.filter).forEach(key => {
-          if (params.filter[key] !== undefined && params.filter[key] !== null && params.filter[key] !== '') {
-            query[key] = params.filter[key]
+          const value = params.filter[key]
+          if (value !== undefined && value !== null && value !== '') {
+            query[key] = value
           }
         })
       }
       
       const url = `${apiUrl}/email_history?${new URLSearchParams(query).toString()}`
-      console.log('🔥 请求 URL:', url)
-      console.log('🔥 筛选参数:', params.filter)
       
       return httpClient(url).then(({ headers, json }) => {
         const contentRange = headers.get('content-range')
         const total = contentRange ? parseInt(contentRange.split('/').pop() || '0', 10) : json.length
-        
-        console.log('✅ API 返回:', { 数据条数: json.length, 总数: total })
         
         return {
           data: json,
@@ -75,16 +64,19 @@ export const dataProvider = {
       })
     }
     
+    // 向量知识库特殊处理
     if (resource === 'vector_knowledge') {
       const { page, perPage } = params.pagination
-      const { field, order } = params.sort
-      const query = {
+      const query: any = {
         skip: (page - 1) * perPage,
         limit: perPage,
-        ...(params.filter.category && { category: params.filter.category }),
       }
       
-      const url = `${apiUrl}/knowledge/documents?${new URLSearchParams(query as any).toString()}`
+      if (params.filter?.category) {
+        query.category = params.filter.category
+      }
+      
+      const url = `${apiUrl}/knowledge/documents?${new URLSearchParams(query).toString()}`
       
       return httpClient(url).then(({ json }) => ({
         data: json.data,
@@ -92,15 +84,15 @@ export const dataProvider = {
       }))
     }
     
-    // 处理提示词模板的特殊路由
+    // 提示词模板特殊处理
     if (resource === 'prompt_templates') {
       const { page, perPage } = params.pagination
       const query: any = {}
       
-      if (params.filter.template_type) {
+      if (params.filter?.template_type) {
         query.template_type = params.filter.template_type
       }
-      if (params.filter.is_active !== undefined && params.filter.is_active !== '') {
+      if (params.filter?.is_active !== undefined && params.filter.is_active !== '') {
         query.is_active = params.filter.is_active === 'true' || params.filter.is_active === true
       }
       
@@ -111,13 +103,11 @@ export const dataProvider = {
       const url = `${apiUrl}/prompt-templates${queryString}`
       
       return httpClient(url).then(({ json }) => {
-        // 确保每条数据都有id字段
         const dataWithIds = json.map((item: any) => ({
           ...item,
-          id: item.id || item.template_id  // 确保有id字段
+          id: item.id || item.template_id
         }))
         
-        // 分页处理（前端分页）
         const start = (page - 1) * perPage
         const end = start + perPage
         const paginatedData = dataWithIds.slice(start, end)
@@ -129,6 +119,7 @@ export const dataProvider = {
       })
     }
     
+    // 其他资源使用默认处理
     return baseDataProvider.getList(resource, params)
   },
   

@@ -286,9 +286,9 @@ class EmailReceiver:
                 content_type = part.get_content_type()
                 content_id = part.get("Content-ID", "")
                 
-                # 🔥 检查是否是内嵌图片（inline 且有 Content-ID）
+                # 🔥 检查是否是内嵌图片（有 Content-ID 且是图片类型）
+                # 关键判断：内嵌图片一定有 Content-ID，用于 HTML 中的 cid: 引用
                 is_inline_image = (
-                    "inline" in content_disposition and 
                     content_id and 
                     content_type.startswith('image/')
                 )
@@ -555,10 +555,9 @@ class EmailReceiver:
                     # 🔥 解析附件和内嵌图片
                     attachments, inline_images = self._parse_attachments(msg, email_id.decode())
                     
-                    # 🔥 处理HTML中的图片引用
-                    if html_body:
-                        html_body = self._process_html_images(html_body, email_id.decode(), inline_images)
-                    
+                    # 🔥 不在这里处理图片，等保存到数据库后使用正确的 DB ID 处理
+                    # 将 inline_images 映射传递给调用方，供后续处理
+
                     email_data = {
                         'email_id': email_id.decode(),
                         'subject': subject,
@@ -570,6 +569,7 @@ class EmailReceiver:
                         'body': text_body,
                         'html_body': html_body,
                         'attachments': attachments,
+                        'inline_images': inline_images,  # 🔥 新增：传递 CID 映射
                         'has_attachments': len(attachments) > 0,
                         'message_id': msg.get('Message-ID', ''),
                         'in_reply_to': msg.get('In-Reply-To', '')

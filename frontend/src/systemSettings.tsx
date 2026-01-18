@@ -12,12 +12,17 @@ import EmailIcon from '@mui/icons-material/Email'
 import StorageIcon from '@mui/icons-material/Storage'
 import SecurityIcon from '@mui/icons-material/Security'
 import NotificationsIcon from '@mui/icons-material/Notifications'
+import VpnKeyIcon from '@mui/icons-material/VpnKey'
 
 export const SystemSettings = () => {
   const navigate = useNavigate()
 
   const handleEmailSystemClick = () => {
     navigate('/email_accounts')
+  }
+
+  const handleProxyClick = () => {
+    navigate('/proxy-settings')
   }
 
   return (
@@ -125,6 +130,32 @@ export const SystemSettings = () => {
                 <Typography variant="h6">通知配置</Typography>
                 <Typography variant="body2" color="text.secondary">
                   邮件提醒、系统通知及消息推送
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* 代理配置 */}
+        <Grid item xs={12} md={6}>
+          <Paper
+            onClick={handleProxyClick}
+            sx={{
+              p: 3,
+              cursor: 'pointer',
+              '&:hover': {
+                boxShadow: 4,
+                transform: 'translateY(-2px)',
+                transition: 'all 0.3s',
+              },
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <VpnKeyIcon sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
+              <Box>
+                <Typography variant="h6">代理配置</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  配置网络代理用于访问国际服务
                 </Typography>
               </Box>
             </Box>

@@ -23,7 +23,8 @@ from .routers import signatures
 from .routers import products
 from .routers import knowledge
 from .routers import vector_knowledge
-from .routers import prompt_templates  # 🔥 新增：提示词模板路由
+from .routers import prompt_templates
+from .routers import prospecting  # 🔥 新增：流量获取路由
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -224,7 +225,8 @@ app.include_router(signatures.router, tags=["邮件签名"])
 app.include_router(products.router, prefix="/api", tags=["产品知识库"])
 app.include_router(knowledge.router, prefix="/api", tags=["知识库管理"]) 
 app.include_router(vector_knowledge.router, prefix="/api", tags=["向量知识库"]) 
-app.include_router(prompt_templates.router, prefix="/api", tags=["提示词模板"])  # 🔥 新增 
+app.include_router(prompt_templates.router, prefix="/api", tags=["提示词模板"])  # 🔥 新增
+app.include_router(prospecting.router, prefix="/api", tags=["流量获取"])  # 🔥 新增流量获取路由 
 
 # 健康检查
 @app.get("/health")
