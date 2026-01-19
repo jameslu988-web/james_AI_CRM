@@ -25,6 +25,9 @@ from .routers import knowledge
 from .routers import vector_knowledge
 from .routers import prompt_templates
 from .routers import prospecting  # 🔥 新增：流量获取路由
+from .routers import customer_grading  # 🔥 新增：客户分级系统
+from .routers import sales_funnel  # 🔥 新增：销售漏斗可视化
+from .routers import tags  # 🔥 新增：客户标签系统
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -227,6 +230,9 @@ app.include_router(knowledge.router, prefix="/api", tags=["知识库管理"])
 app.include_router(vector_knowledge.router, prefix="/api", tags=["向量知识库"]) 
 app.include_router(prompt_templates.router, prefix="/api", tags=["提示词模板"])  # 🔥 新增
 app.include_router(prospecting.router, prefix="/api", tags=["流量获取"])  # 🔥 新增流量获取路由 
+app.include_router(customer_grading.router, prefix="/api", tags=["客户分级"])  # 🔥 新增客户分级系统 
+app.include_router(sales_funnel.router, prefix="/api", tags=["销售漏斗"])  # 🔥 新增销售漏斗可视化 
+app.include_router(tags.router, prefix="/api", tags=["客户标签"])  # 🔥 新增客户标签系统 
 
 # 健康检查
 @app.get("/health")

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { List, Datagrid, TextField as RATextField, EmailField, TextInput, SelectInput, Edit, Create, SimpleForm, useRecordContext, FunctionField, TabbedForm, FormTab, EditButton, ReferenceManyField, Button as RAButton, useNotify, useRefresh, BulkDeleteButton, BulkExportButton, useListContext } from 'react-admin'
+import { List, Datagrid, TextField as RATextField, EmailField, TextInput, SelectInput, Edit, Create, SimpleForm, useRecordContext, FunctionField, TabbedForm, FormTab, EditButton, ReferenceManyField, Button as RAButton, useNotify, useRefresh, BulkDeleteButton, BulkExportButton, useListContext, TopToolbar, ListButton, Pagination, useListController } from 'react-admin'
 import { getApiUrl } from './config/api'
 import Box from '@mui/material/Box'
 import Card from '@mui/material/Card'
@@ -22,6 +22,11 @@ import PhoneIcon from '@mui/icons-material/Phone'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import FilterListIcon from '@mui/icons-material/FilterList'
 import SettingsIcon from '@mui/icons-material/Settings'
+import GradeIcon from '@mui/icons-material/Grade'
+import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import LinearProgress from '@mui/material/LinearProgress'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import DeleteIcon from '@mui/icons-material/Delete'
 import Menu from '@mui/material/Menu'
 import Dialog from '@mui/material/Dialog'
 import DialogTitle from '@mui/material/DialogTitle'
@@ -461,32 +466,76 @@ const countryFlag = (country?: string) => {
   return map[country || ''] ? `${map[country!]} ${country}` : country || '-'
 }
 
-const RowActions = ({ record }: any) => {
+const RowActions = ({ record, onViewProfile }: any) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null)
   const notify = useNotify()
-  const handleClick = (event: React.MouseEvent<HTMLElement>) => setAnchorEl(event.currentTarget)
+  const handleClick = (event: React.MouseEvent<HTMLElement>) => {
+    event.stopPropagation()
+    setAnchorEl(event.currentTarget)
+  }
   const handleClose = () => setAnchorEl(null)
-  const handleAnalyze = () => {
-    notify(`查看客户 ${record?.company_name} 的分析`, { type: 'info' })
+  
+  const handleEdit = () => {
+    window.location.href = `#/customers/${record.id}`
     handleClose()
   }
+  
+  const handleViewProfile = () => {
+    onViewProfile(record)
+    handleClose()
+  }
+  
   const handleFollowup = () => {
     notify(`为客户 ${record?.company_name} 创建跟进`, { type: 'info' })
     handleClose()
   }
+  
   const handleEmail = () => {
     notify(`向 ${record?.email} 发送邮件`, { type: 'info' })
     handleClose()
   }
+  
+  const handleDelete = async () => {
+    if (window.confirm(`确定要删除客户 "${record?.company_name}" 吗？`)) {
+      try {
+        const res = await fetch(getApiUrl('crm', `/customers/${record.id}`), {
+          method: 'DELETE'
+        })
+        if (res.ok) {
+          notify('客户已删除', { type: 'success' })
+          window.location.reload()  // 刷新页面
+        } else {
+          notify('删除失败', { type: 'error' })
+        }
+      } catch (e) {
+        notify('网络错误', { type: 'error' })
+      }
+    }
+    handleClose()
+  }
+  
   return (
     <>
       <IconButton size="small" onClick={handleClick}>
         <MoreVertIcon fontSize="small" />
       </IconButton>
       <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={handleClose}>
-        <MenuItem onClick={handleAnalyze}><AnalyticsIcon fontSize="small" sx={{mr:1}} /> 分析</MenuItem>
-        <MenuItem onClick={handleFollowup}><PhoneIcon fontSize="small" sx={{mr:1}} /> 跟进</MenuItem>
-        <MenuItem onClick={handleEmail}><EmailIcon fontSize="small" sx={{mr:1}} /> 发邮件</MenuItem>
+        <MenuItem onClick={handleViewProfile}>
+          <AnalyticsIcon fontSize="small" sx={{mr:1}} /> 查看画像
+        </MenuItem>
+        <MenuItem onClick={handleEdit}>
+          <EditIcon fontSize="small" sx={{mr:1}} /> 编辑客户
+        </MenuItem>
+        <MenuItem onClick={handleFollowup}>
+          <PhoneIcon fontSize="small" sx={{mr:1}} /> 跟进
+        </MenuItem>
+        <MenuItem onClick={handleEmail}>
+          <EmailIcon fontSize="small" sx={{mr:1}} /> 发邮件
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleDelete} sx={{ color: '#ef4444' }}>
+          <DeleteIcon fontSize="small" sx={{mr:1}} /> 删除
+        </MenuItem>
       </Menu>
     </>
   )
@@ -512,8 +561,18 @@ const customerFilters = [
   ]} />
 ]
 
-const CustomerListActions = ({ setFieldSettingsOpen, setFilterOpen }: any) => (
+const CustomerListActions = ({ setFieldSettingsOpen, setFilterOpen, onGradeAll }: any) => (
   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+    <Button
+      startIcon={<GradeIcon />}
+      onClick={onGradeAll}
+      variant="outlined"
+      size="small"
+      sx={{ textTransform: 'none' }}
+    >
+      批量分级
+    </Button>
+    
     <IconButton 
       onClick={() => setFilterOpen(true)} 
       sx={{ 
@@ -542,15 +601,19 @@ const CustomerListActions = ({ setFieldSettingsOpen, setFilterOpen }: any) => (
 
 // 带固定顶部栏的客户列表包装组件
 const CustomerListWithFixedHeader = (props: any) => {
-  const { visibleFields, renderFieldColumn, totalCount, searchText, setSearchText, searchField, setSearchField, handleKeyPress, setFilterOpen, filterOpen, setFieldSettingsOpen, setCreateOpen, refresh } = props
+  const { visibleFields, renderFieldColumn, totalCount, searchText, setSearchText, searchField, setSearchField, handleKeyPress, setFilterOpen, filterOpen, setFieldSettingsOpen, setCreateOpen, refresh, onGradeAll, onViewProfile } = props
   
   return (
     <Box sx={{
-      marginTop: '-61px',  // 抵消 React Admin 的默认上边距
-      height: 'calc(100vh - 64px)',
+      position: 'fixed',
+      top: 64,
+      left: 240,
+      right: 0,
+      bottom: 0,
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
+      backgroundColor: 'white'
     }}>
       {/* 固定的顶部栏：全部客户数量 + 搜索和操作按钮 */}
       <Box sx={{ 
@@ -569,8 +632,22 @@ const CustomerListWithFixedHeader = (props: any) => {
           全部客户  <Typography component="span" variant="body2" sx={{ color: '#1976d2', fontWeight: 600 }}>{totalCount.toLocaleString()}</Typography> 个客户
         </Typography>
         
-        {/* 右侧：筛选下拉框 + 搜索框 + 按钮组 */}
+        {/* 右侧：批量分级按钮 + 筛选下拉框 + 搜索框 + 按钮组 */}
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', height: '36px' }}>
+          {/* 批量分级按钮 */}
+          <Button
+            startIcon={<GradeIcon />}
+            onClick={onGradeAll}
+            variant="outlined"
+            size="small"
+            sx={{ 
+              height: '36px',
+              textTransform: 'none',
+              borderColor: '#d0d0d0'
+            }}
+          >
+            批量分级
+          </Button>
           {/* 筛选字段下拉框 */}
           <TextField
             select
@@ -714,10 +791,14 @@ const CustomerListWithFixedHeader = (props: any) => {
               padding: '12px 16px',
             }
           }
+        },
+        // 隐藏React Admin默认的翻页组件
+        '& .RaList-content > .MuiToolbar-root': {
+          display: 'none'
         }
       }}>
         <Datagrid
-          rowClick="edit"
+          rowClick={false}
           bulkActionButtons={<BulkActionButtons />}
           sx={{
             '& .RaDatagrid-headerCell': { fontWeight: 600, backgroundColor: '#f9fafb' },
@@ -725,18 +806,191 @@ const CustomerListWithFixedHeader = (props: any) => {
           }}
         >
           {visibleFields.map((fieldName: string) => renderFieldColumn(fieldName))}
-          <FunctionField label="操作" render={(record:any) => <RowActions record={record} />} />
+          <FunctionField label="操作" render={(record:any) => <RowActions record={record} onViewProfile={onViewProfile} />} />
         </Datagrid>
+      </Box>
+      
+      {/* 底部翻页区域 */}
+      <Box sx={{ 
+        flexShrink: 0,
+        borderTop: '1px solid #e0e0e0',
+        backgroundColor: 'white',
+        display: 'flex',
+        justifyContent: 'flex-end',
+        alignItems: 'center',
+        px: 2,
+        py: 1
+      }}>
+        <Pagination rowsPerPageOptions={[10, 20, 50, 100]} />
       </Box>
     </Box>
   )
 }
 
-const BulkActionButtons = () => (
-  <>
-    <BulkDeleteButton />
-  </>
-)
+// 批量打标签对话框
+const BatchTagDialog = ({ open, onClose, selectedIds, onSuccess }: any) => {
+  const [allTags, setAllTags] = useState<any[]>([])
+  const [selectedTags, setSelectedTags] = useState<number[]>([])
+  const [loading, setLoading] = useState(false)
+  const notify = useNotify()
+  const refresh = useRefresh()
+
+  useEffect(() => {
+    if (open) {
+      // 获取所有标签
+      fetch(getApiUrl('crm', '/tags?range=[0,999]'))
+        .then(r => r.json())
+        .then(tags => setAllTags(tags))
+        .catch(() => notify('获取标签失败', { type: 'error' }))
+    }
+  }, [open])
+
+  const handleToggleTag = (tagId: number) => {
+    setSelectedTags(prev => 
+      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
+    )
+  }
+
+  const handleAddTags = async () => {
+    if (selectedTags.length === 0) {
+      notify('请选择至少一个标签', { type: 'warning' })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(getApiUrl('crm', '/tags/batch'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_ids: selectedIds,
+          tag_ids: selectedTags,
+          action: 'add'
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        notify(`批量打标签成功：已为 ${result.customers_count} 个客户添加 ${result.tags_count} 个标签`, { type: 'success' })
+        refresh()
+        onSuccess()
+        onClose()
+      } else {
+        notify('批量打标签失败', { type: 'error' })
+      }
+    } catch (error) {
+      notify('批量打标签失败', { type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRemoveTags = async () => {
+    if (selectedTags.length === 0) {
+      notify('请选择至少一个标签', { type: 'warning' })
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch(getApiUrl('crm', '/tags/batch'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          customer_ids: selectedIds,
+          tag_ids: selectedTags,
+          action: 'remove'
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        notify(`批量移除标签成功：已为 ${result.customers_count} 个客户移除 ${result.tags_count} 个标签`, { type: 'success' })
+        refresh()
+        onSuccess()
+        onClose()
+      } else {
+        notify('批量移除标签失败', { type: 'error' })
+      }
+    } catch (error) {
+      notify('批量移除标签失败', { type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>批量打标签（已选择 {selectedIds.length} 个客户）</DialogTitle>
+      <DialogContent>
+        <Box sx={{ mt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            选择要添加或移除的标签：
+          </Typography>
+          {allTags.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              暂无标签，请先在标签管理中创建标签
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {allTags.map(tag => (
+                <Chip
+                  key={tag.id}
+                  label={tag.name}
+                  onClick={() => handleToggleTag(tag.id)}
+                  sx={{
+                    backgroundColor: selectedTags.includes(tag.id) ? tag.color : '#f5f5f5',
+                    color: selectedTags.includes(tag.id) ? '#fff' : '#333',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    '&:hover': {
+                      opacity: 0.8
+                    }
+                  }}
+                />
+              ))}
+            </Box>
+          )}
+        </Box>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>取消</Button>
+        <Button onClick={handleRemoveTags} disabled={loading || selectedTags.length === 0} color="warning">
+          移除标签
+        </Button>
+        <Button onClick={handleAddTags} disabled={loading || selectedTags.length === 0} variant="contained">
+          添加标签
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+const BulkActionButtons = () => {
+  const { selectedIds } = useListContext()
+  const [batchTagOpen, setBatchTagOpen] = useState(false)
+
+  return (
+    <>
+      <Button
+        startIcon={<LocalOfferIcon />}
+        onClick={() => setBatchTagOpen(true)}
+        disabled={selectedIds.length === 0}
+        sx={{ mr: 1 }}
+      >
+        批量打标签
+      </Button>
+      <BulkDeleteButton />
+      
+      <BatchTagDialog
+        open={batchTagOpen}
+        onClose={() => setBatchTagOpen(false)}
+        selectedIds={selectedIds}
+        onSuccess={() => {}}
+      />
+    </>
+  )
+}
 
 export const CustomerList = (props:any) => {
   const [createOpen, setCreateOpen] = useState(false)
@@ -747,7 +1001,34 @@ export const CustomerList = (props:any) => {
   const [searchText, setSearchText] = useState('')
   const [searchField, setSearchField] = useState('company_name')
   const [filterParams, setFilterParams] = useState<any>({})
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null)
+  const notify = useNotify()
   const refresh = useRefresh()
+  
+  // 处理批量分级
+  const handleGradeAll = async () => {
+    try {
+      const response = await fetch(getApiUrl('crm', '/grade-all'), {
+        method: 'POST'
+      })
+      if (response.ok) {
+        const result = await response.json()
+        notify(`批量分级完成：${result.upgraded}个升级，${result.downgraded}个降级，${result.unchanged}个不变`, { type: 'success' })
+        refresh()
+      } else {
+        notify('批量分级失败', { type: 'error' })
+      }
+    } catch (error) {
+      notify('批量分级失败', { type: 'error' })
+    }
+  }
+  
+  // 处理查看客户画像
+  const handleViewProfile = (customer: any) => {
+    setSelectedCustomer(customer)
+    setProfileOpen(true)
+  }
   
   // 处理搜索
   const handleSearch = () => {
@@ -779,6 +1060,7 @@ export const CustomerList = (props:any) => {
     { name: 'company_name', label: '公司名称', type: 'fixed' },
     { name: 'status', label: '客户阶段', type: 'fixed' },
     { name: 'customer_grade', label: '客户等级', type: 'fixed' },
+    { name: 'engagement_score', label: '参与度评分', type: 'fixed' },
     { name: 'contact_name', label: '联系人', type: 'fixed' },
     { name: 'email', label: '邮箱', type: 'fixed' },
     { name: 'country', label: '国家地区', type: 'fixed' },
@@ -789,7 +1071,7 @@ export const CustomerList = (props:any) => {
   
   // 显示的字段（默认显示前7个）
   const [visibleFields, setVisibleFields] = useState<string[]>([
-    'company_name', 'status', 'customer_grade', 'contact_name', 'email', 'country', 'tags'
+    'company_name', 'status', 'customer_grade', 'engagement_score', 'contact_name', 'email', 'country', 'website'
   ])
   
   // 自定义字段列表
@@ -797,6 +1079,15 @@ export const CustomerList = (props:any) => {
   
   // 加载时从数据库获取自定义字段定义
   useEffect(() => {
+    // 重置页码到第一页
+    const currentUrl = new URL(window.location.href)
+    const hash = currentUrl.hash
+    if (hash.includes('/customers') && hash.includes('page=')) {
+      // 如果 URL 中有 page 参数，移除它
+      const newHash = hash.replace(/[?&]page=\d+/, '').replace(/\?&/, '?')
+      window.location.hash = newHash
+    }
+    
     // 获取自定义字段
     fetch(getApiUrl('crm', '/custom_fields?range=[0,999]'))
       .then(r => r.json())
@@ -812,7 +1103,7 @@ export const CustomerList = (props:any) => {
           .filter(f => f.is_visible)
           .map(f => f.field_name)
         const defaultVisibleFields = [
-          'company_name', 'status', 'customer_grade', 'contact_name', 'email', 'country', 'tags'
+          'company_name', 'status', 'customer_grade', 'engagement_score', 'contact_name', 'email', 'country', 'website'
         ]
         const allVisible = [...new Set([...defaultVisibleFields, ...visibleCustomFields])]
         
@@ -872,6 +1163,32 @@ export const CustomerList = (props:any) => {
         return <Chip label={grade?.label || record?.customer_grade || '-'} size="small" sx={{ bgcolor: grade?.color, color: '#fff', fontWeight: 500 }} />
       }} />
     }
+    if (fieldName === 'engagement_score') {
+      return <FunctionField key={fieldName} label="参与度评分" render={(record:any) => {
+        const score = record?.engagement_score || 0
+        const color = score >= 80 ? '#10b981' : score >= 60 ? '#3b82f6' : score >= 40 ? '#f59e0b' : '#6b7280'
+        return (
+          <Box sx={{ width: '100%', maxWidth: 100 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <TrendingUpIcon sx={{ fontSize: 14, color }} />
+              <Typography variant="caption" sx={{ color, fontWeight: 600 }}>{score.toFixed(0)}</Typography>
+            </Box>
+            <LinearProgress 
+              variant="determinate" 
+              value={score} 
+              sx={{ 
+                height: 4, 
+                borderRadius: 2,
+                backgroundColor: '#e0e0e0',
+                '& .MuiLinearProgress-bar': { 
+                  backgroundColor: color 
+                }
+              }} 
+            />
+          </Box>
+        )
+      }} />
+    }
     if (fieldName === 'country') {
       return <FunctionField key={fieldName} label="国家地区" render={(record:any) => countryFlag(record?.country)} />
     }
@@ -882,6 +1199,37 @@ export const CustomerList = (props:any) => {
       return <FunctionField key={fieldName} label="标签" render={(record:any) => (
         <EditableTagsCell record={record} refresh={refresh} />
       )} />
+    }
+    if (fieldName === 'website') {
+      return <FunctionField key={fieldName} label="官网" render={(record:any) => {
+        const website = record?.website
+        if (!website) return <span style={{ color: '#999' }}>-</span>
+        
+        // 确保 URL有协议
+        const url = website.startsWith('http://') || website.startsWith('https://') 
+          ? website 
+          : `https://${website}`
+        
+        return (
+          <Box 
+            component="a" 
+            href={url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            sx={{ 
+              color: '#1677ff',
+              textDecoration: 'none',
+              cursor: 'pointer',
+              '&:hover': {
+                textDecoration: 'underline'
+              }
+            }}
+            onClick={(e: any) => e.stopPropagation()}
+          >
+            点击查看
+          </Box>
+        )
+      }} />
     }
     if (field) {
       return <RATextField key={fieldName} source={fieldName} label={field.label} />
@@ -910,6 +1258,8 @@ export const CustomerList = (props:any) => {
         filterDefaultValues={filterParams}
         filter={filterParams}
         pagination={false}
+        sort={{ field: 'id', order: 'DESC' }}
+        disableSyncWithLocation
       >
         <CustomerListWithFixedHeader 
           visibleFields={visibleFields}
@@ -925,9 +1275,16 @@ export const CustomerList = (props:any) => {
           setFieldSettingsOpen={setFieldSettingsOpen}
           setCreateOpen={setCreateOpen}
           refresh={refresh}
+          onGradeAll={handleGradeAll}
+          onViewProfile={handleViewProfile}
         />
       </List>
       <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
+      <CustomerProfileDrawer 
+        open={profileOpen} 
+        onClose={() => setProfileOpen(false)}
+        customer={selectedCustomer}
+      />
       <FieldSettingsDialog 
         open={fieldSettingsOpen} 
         onClose={() => setFieldSettingsOpen(false)}
@@ -1321,6 +1678,12 @@ const CreateDrawer = ({ open, onClose }: any) => {
   }
   
   const handleSubmit = async () => {
+    // 验证必填字段
+    if (!formData.company_name || !formData.company_name.trim()) {
+      notify('请填写公司名称', { type: 'warning' })
+      return
+    }
+    
     try {
       const customFieldsObj: any = {}
       Object.keys(customFieldsValues).forEach(key => {
@@ -1332,11 +1695,15 @@ const CreateDrawer = ({ open, onClose }: any) => {
         ...formData,
         custom_fields: Object.keys(customFieldsObj).length > 0 ? JSON.stringify(customFieldsObj) : null
       }
+      
+      console.log('发送客户数据:', payload)
+      
       const res = await fetch(getApiUrl('crm', '/customers'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
+      
       if (res.ok) {
         notify('客户创建成功', { type: 'success' })
         onClose()
@@ -1344,10 +1711,13 @@ const CreateDrawer = ({ open, onClose }: any) => {
         setFormData({})
         setCustomFieldsValues({})
       } else {
-        notify('创建失败', { type: 'error' })
+        const errorData = await res.json().catch(() => ({}))
+        console.error('API错误:', errorData)
+        notify(errorData.detail || `创建失败 (${res.status})`, { type: 'error' })
       }
-    } catch (e) {
-      notify('网络错误', { type: 'error' })
+    } catch (e: any) {
+      console.error('网络错误:', e)
+      notify(`网络错误: ${e.message || '无法连接到服务器'}`, { type: 'error' })
     }
   }
   
@@ -1364,6 +1734,7 @@ const CreateDrawer = ({ open, onClose }: any) => {
           <TextField fullWidth label="邮箱" value={formData.email || ''} onChange={(e:any) => setFormData({...formData, email: e.target.value})} />
           <TextField fullWidth label="电话" value={formData.phone || ''} onChange={(e:any) => setFormData({...formData, phone: e.target.value})} />
           <TextField fullWidth label="国家" value={formData.country || ''} onChange={(e:any) => setFormData({...formData, country: e.target.value})} />
+          <TextField fullWidth label="官网" value={formData.website || ''} onChange={(e:any) => setFormData({...formData, website: e.target.value})} />
         </Box>
         
         <Box sx={{ mt: 3, mb: 2 }}>
@@ -1467,8 +1838,53 @@ const AnalyticsAside = () => {
   );
 }
 
+// 客户编辑页面的顶部操作栏
+const CustomerEditActions = () => (
+  <TopToolbar>
+    <Button
+      startIcon={<ArrowBackIcon />}
+      onClick={() => window.location.href = '#/customers'}
+      variant="outlined"
+      size="medium"
+      sx={{ 
+        textTransform: 'none',
+        borderColor: '#1976d2',
+        color: '#1976d2',
+        '&:hover': {
+          borderColor: '#1565c0',
+          backgroundColor: '#e3f2fd'
+        }
+      }}
+    >
+      返回列表
+    </Button>
+  </TopToolbar>
+)
+
 export const CustomerEdit = (props:any) => (
-  <Edit {...props} aside={<AnalyticsAside />}>
+  <Edit {...props} aside={<AnalyticsAside />} actions={false}>
+    {/* 自定义标题栏，包含返回按钮 */}
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, px: 2, pt: 2 }}>
+      <Button
+        startIcon={<ArrowBackIcon />}
+        onClick={() => window.location.href = '#/customers'}
+        variant="outlined"
+        size="medium"
+        sx={{ 
+          textTransform: 'none',
+          borderColor: '#1976d2',
+          color: '#1976d2',
+          '&:hover': {
+            borderColor: '#1565c0',
+            backgroundColor: '#e3f2fd'
+          }
+        }}
+      >
+        返回列表
+      </Button>
+      <Typography variant="h5" sx={{ fontWeight: 500 }}>编辑客户</Typography>
+    </Box>
+    
     <TabbedForm>
       <FormTab label="基本信息">
         <TextInput source="company_name" label="公司名称" fullWidth />
@@ -1521,3 +1937,168 @@ export const CustomerEdit = (props:any) => (
     </TabbedForm>
   </Edit>
 )
+
+// 客户画像抽屉组件
+const CustomerProfileDrawer = ({ open, onClose, customer }: any) => {
+  const [profileData, setProfileData] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  
+  useEffect(() => {
+    if (open && customer?.id) {
+      setLoading(true)
+      console.log('Fetching customer profile for ID:', customer.id)
+      fetch(getApiUrl('crm', `/${customer.id}/profile`))
+        .then(r => {
+          console.log('Profile API response status:', r.status)
+          return r.json()
+        })
+        .then(data => {
+          console.log('Profile data:', data)
+          setProfileData(data)
+          setLoading(false)
+        })
+        .catch(error => {
+          console.error('Failed to fetch profile:', error)
+          setLoading(false)
+        })
+    }
+  }, [open, customer])
+  
+  if (!customer) return null
+  
+  const grade = gradeLabelMap[profileData?.grading?.grade || 'D']
+  const score = profileData?.grading?.engagement_score || 0
+  const scoreColor = score >= 80 ? '#10b981' : score >= 60 ? '#3b82f6' : score >= 40 ? '#f59e0b' : '#6b7280'
+  
+  return (
+    <Drawer anchor="right" open={open} onClose={onClose}>
+      <Box sx={{ width: 500, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        {/* 头部 */}
+        <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ fontWeight: 600 }}>客户画像</Typography>
+          <IconButton onClick={onClose} size="small">
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        
+        {/* 内容 */}
+        <Box sx={{ flex: 1, overflow: 'auto', p: 3 }}>
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <Typography>加载中...</Typography>
+            </Box>
+          ) : profileData ? (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {/* 基本信息 */}
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: '#666' }}>基本信息</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box><Typography variant="body2" color="text.secondary">公司名称：</Typography><Typography variant="body2" sx={{ fontWeight: 500 }}>{profileData.basic_info.company_name}</Typography></Box>
+                    <Box><Typography variant="body2" color="text.secondary">联系人：</Typography><Typography variant="body2">{profileData.basic_info.contact_name || '-'}</Typography></Box>
+                    <Box><Typography variant="body2" color="text.secondary">邮箱：</Typography><Typography variant="body2">{profileData.basic_info.email || '-'}</Typography></Box>
+                    <Box><Typography variant="body2" color="text.secondary">国家：</Typography><Typography variant="body2">{profileData.basic_info.country || '-'}</Typography></Box>
+                  </Box>
+                </CardContent>
+              </Card>
+              
+              {/* 分级情况 */}
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: '#666' }}>分级情况</Typography>
+                  <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">客户等级</Typography>
+                      <Chip label={grade?.label || '-'} size="medium" sx={{ bgcolor: grade?.color, color: '#fff', fontWeight: 600, mt: 0.5 }} />
+                    </Box>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" color="text.secondary">参与度评分</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+                        <Box sx={{ flex: 1 }}>
+                          <LinearProgress 
+                            variant="determinate" 
+                            value={score} 
+                            sx={{ 
+                              height: 8, 
+                              borderRadius: 4,
+                              backgroundColor: '#e0e0e0',
+                              '& .MuiLinearProgress-bar': { 
+                                backgroundColor: scoreColor 
+                              }
+                            }} 
+                          />
+                        </Box>
+                        <Typography variant="body2" sx={{ color: scoreColor, fontWeight: 600, minWidth: 35 }}>{score.toFixed(0)}</Typography>
+                      </Box>
+                    </Box>
+                  </Box>
+                  {profileData.grading.grading_reason && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                      分级理由：{profileData.grading.grading_reason}
+                    </Typography>
+                  )}
+                </CardContent>
+              </Card>
+              
+              {/* 行为统计 */}
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: '#666' }}>行为统计</Typography>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">发送邮件</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>{profileData.statistics.email_sent}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">接收邮件</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>{profileData.statistics.email_received}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">邮件回复</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>{profileData.statistics.email_reply}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">订单数量</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>{profileData.statistics.order_count}</Typography>
+                    </Box>
+                    <Box sx={{ gridColumn: 'span 2' }}>
+                      <Typography variant="caption" color="text.secondary">总订单金额</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 600 }}>${profileData.statistics.total_amount.toFixed(2)}</Typography>
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+              
+              {/* 活跃度 */}
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: '#666' }}>活跃度</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box><Typography variant="body2" color="text.secondary">最后活跃：</Typography><Typography variant="body2">{profileData.activity.last_active || '-'}</Typography></Box>
+                    <Box><Typography variant="body2" color="text.secondary">距上次联系：</Typography><Typography variant="body2">{profileData.activity.days_since_contact}天</Typography></Box>
+                    <Box><Typography variant="body2" color="text.secondary">成为客户：</Typography><Typography variant="body2">{profileData.activity.days_as_customer}天</Typography></Box>
+                  </Box>
+                </CardContent>
+              </Card>
+              
+              {/* 价值评估 */}
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600, color: '#666' }}>价值评估</Typography>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box><Typography variant="body2" color="text.secondary">年采购额：</Typography><Typography variant="body2" sx={{ fontWeight: 600 }}>${profileData.value.actual_annual_value?.toFixed(2) || '0.00'}</Typography></Box>
+                    <Box><Typography variant="body2" color="text.secondary">生命周期价值：</Typography><Typography variant="body2" sx={{ fontWeight: 600 }}>${profileData.value.lifetime_value?.toFixed(2) || '0.00'}</Typography></Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <Typography color="text.secondary">无数据</Typography>
+            </Box>
+          )}
+        </Box>
+      </Box>
+    </Drawer>
+  )
+}

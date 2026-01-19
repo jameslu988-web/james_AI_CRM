@@ -314,8 +314,21 @@ const TestButton = () => {
                   {testResult.success && (
                     <>
                       <Typography variant="body2" color="text.secondary">
-                        找到 {testResult.mailbox_count} 个邮箱文件夹
+                        {testResult.message || `找到 ${testResult.mailbox_count} 个邮箱文件夹`}
                       </Typography>
+                      
+                      {/* 显示测试步骤详情 */}
+                      {testResult.details && testResult.details.length > 0 && (
+                        <Box sx={{ mt: 2, p: 1.5, bgcolor: 'rgba(0,0,0,0.02)', borderRadius: 1 }}>
+                          <Typography variant="caption" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>测试步骤:</Typography>
+                          {testResult.details.map((detail: string, idx: number) => (
+                            <Typography key={idx} variant="caption" sx={{ display: 'block', color: '#666', lineHeight: 1.6 }}>
+                              {detail}
+                            </Typography>
+                          ))}
+                        </Box>
+                      )}
+                      
                       {testResult.mailboxes && testResult.mailboxes.length > 0 && (
                         <Box sx={{ mt: 2 }}>
                           <Typography variant="caption" color="text.secondary">
@@ -331,9 +344,51 @@ const TestButton = () => {
                     </>
                   )}
                   {!testResult.success && (
-                    <Typography variant="body2" color="error">
-                      {testResult.message || '连接失败，请检查配置'}
-                    </Typography>
+                    <Box>
+                      <Typography variant="body2" color="error" sx={{ mb: 2 }}>
+                        {testResult.message || '连接失败，请检查配置'}
+                      </Typography>
+                      
+                      {/* 显示详细错误信息 */}
+                      {testResult.details && testResult.details.length > 0 && (
+                        <Box sx={{ 
+                          mt: 2, 
+                          p: 2, 
+                          bgcolor: 'rgba(220,38,38,0.05)', 
+                          borderRadius: 1,
+                          border: '1px solid rgba(220,38,38,0.2)'
+                        }}>
+                          {testResult.details.map((detail: string, idx: number) => (
+                            <Typography 
+                              key={idx} 
+                              variant="body2" 
+                              sx={{ 
+                                display: 'block', 
+                                color: detail.startsWith('❌') || detail.startsWith('可能原因') || detail.startsWith('解决方案') ? '#991b1b' : '#666',
+                                fontWeight: detail.startsWith('❌') || detail.startsWith('可能原因') || detail.startsWith('解决方案') ? 600 : 400,
+                                lineHeight: 1.8,
+                                fontFamily: detail.startsWith('  ') ? 'monospace' : 'inherit',
+                                whiteSpace: 'pre-wrap'
+                              }}
+                            >
+                              {detail}
+                            </Typography>
+                          ))}
+                        </Box>
+                      )}
+                      
+                      {/* 错误类型标签 */}
+                      {testResult.error_type && (
+                        <Box sx={{ mt: 2 }}>
+                          <Chip 
+                            label={`错误类型: ${testResult.error_type}`} 
+                            size="small" 
+                            color="error" 
+                            variant="outlined"
+                          />
+                        </Box>
+                      )}
+                    </Box>
                   )}
                 </CardContent>
               </Card>

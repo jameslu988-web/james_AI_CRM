@@ -23,6 +23,8 @@ import { PricingRuleList, PricingRuleCreate, PricingRuleEdit } from './pricingRu
 import { CaseStudyList, CaseStudyCreate, CaseStudyEdit } from './caseStudies'
 import { VectorKnowledgeList } from './vectorKnowledge'
 import { PromptTemplateList } from './promptTemplates'
+import { SalesFunnel } from './SalesFunnel'
+import { TagList, TagCreate, TagEdit } from './tags'
 
 export default function App() {
   return (
@@ -51,11 +53,13 @@ export default function App() {
       <Resource name="case_studies" options={{ label: '案例库' }} list={CaseStudyList} create={CaseStudyCreate} edit={CaseStudyEdit} />
       <Resource name="vector_knowledge" options={{ label: '向量知识库' }} list={VectorKnowledgeList} />
       <Resource name="prompt_templates" options={{ label: 'AI提示词模板' }} list={PromptTemplateList} />
+      <Resource name="tags" options={{ label: '客户标签' }} list={TagList} create={TagCreate} edit={TagEdit} />
       <CustomRoutes>
         <Route path="/customer-settings" element={<CustomerSettings />} />
         <Route path="/system-settings" element={<SystemSettings />} />
         <Route path="/proxy-settings" element={<ProxySettings />} />
         <Route path="/email_trash" element={<EmailTrashList />} />
+        <Route path="/sales-funnel" element={<SalesFunnel />} />
       </CustomRoutes>
     </Admin>
   )

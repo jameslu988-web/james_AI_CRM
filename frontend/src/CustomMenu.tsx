@@ -24,6 +24,7 @@ import AttachMoneyIcon from '@mui/icons-material/AttachMoney'
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter'
 import StorageIcon from '@mui/icons-material/Storage'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
+import FilterAltIcon from '@mui/icons-material/FilterAlt'
 
 export const CustomMenu = () => {
   const navigate = useNavigate()
@@ -76,6 +77,11 @@ export const CustomMenu = () => {
             to="/customers"
             primaryText="客户列表"
             leftIcon={<ListIcon />}
+          />
+          <Menu.Item
+            to="/sales-funnel"
+            primaryText="销售漏斗"
+            leftIcon={<FilterAltIcon />}
           />
           <Menu.Item
             to="/customer-settings"

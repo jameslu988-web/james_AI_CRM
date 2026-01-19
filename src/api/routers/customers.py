@@ -40,7 +40,7 @@ def list_customers(
         s = json.loads(sort)
         sort_field, sort_order = s[0], s[1]
     except Exception:
-        sort_field, sort_order = "id", "ASC"
+        sort_field, sort_order = "id", "DESC"  # 默认按ID倒序（最新的在前）
 
     query = db.query(Customer)
     # 过滤条件
@@ -103,11 +103,25 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
 
 @router.post("/customers", response_model=CustomerOut)
 def create_customer(customer_in: CustomerCreate, db: Session = Depends(get_db)):
-    customer = Customer(**customer_in.dict())
-    db.add(customer)
-    db.commit()
-    db.refresh(customer)
-    return customer
+    try:
+        # 输出接收到的数据
+        print(f"\n=== 创建客户请求 ===")
+        print(f"接收到的数据: {customer_in.dict()}")
+        
+        customer = Customer(**customer_in.dict())
+        db.add(customer)
+        db.commit()
+        db.refresh(customer)
+        
+        print(f"创建成功: ID={customer.id}")
+        return customer
+        
+    except Exception as e:
+        print(f"\n!!! 创建客户失败 !!!")
+        print(f"错误类型: {type(e).__name__}")
+        print(f"错误详情: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {str(e)}")
 
 
 @router.put("/customers/{customer_id}", response_model=CustomerOut)

@@ -15,10 +15,24 @@ class CustomerBase(BaseModel):
     source: Optional[str] = None
     tags: Optional[str] = None  # 逗号分隔或JSON字符串
     customer_grade: Optional[str] = None  # A/B/C/D
+    engagement_score: Optional[float] = None  # 参与度评分 (0-100)
     last_followup_note: Optional[str] = None
     linkedin_url: Optional[str] = None
     facebook_url: Optional[str] = None
     custom_fields: Optional[str] = None  # JSON字符串
+    # 客户行为统计字段
+    email_sent_count: Optional[int] = None
+    email_received_count: Optional[int] = None
+    email_reply_count: Optional[int] = None
+    order_count: Optional[int] = None
+    total_order_amount: Optional[float] = None
+    # 客户价值字段
+    actual_annual_value: Optional[float] = None
+    lifetime_value: Optional[float] = None
+    # 活跃度字段
+    last_active_date: Optional[datetime] = None
+    days_since_last_contact: Optional[int] = None
+    response_rate: Optional[float] = None
 
 
 class CustomerCreate(CustomerBase):

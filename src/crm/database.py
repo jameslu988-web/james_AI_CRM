@@ -95,8 +95,32 @@ class Customer(Base):
     last_contact_date = Column(DateTime)
     next_followup_date = Column(DateTime)
 
-    engagement_score = Column(Float)
+    engagement_score = Column(Float, default=0)
     estimated_value = Column(Float)
+    
+    # 客户行为统计字段
+    email_sent_count = Column(Integer, default=0)
+    email_received_count = Column(Integer, default=0)
+    email_reply_count = Column(Integer, default=0)
+    order_count = Column(Integer, default=0)
+    total_order_amount = Column(Float, default=0)
+    
+    # 客户参与度计算字段
+    last_active_date = Column(DateTime)
+    days_since_last_contact = Column(Integer, default=0)
+    response_rate = Column(Float, default=0)
+    
+    # 客户价值评分字段
+    purchase_frequency = Column(Float, default=0)  # 购买频率（次/年）
+    average_order_value = Column(Float, default=0)  # 平均订单价值
+    lifetime_value = Column(Float, default=0)  # 客户终身价值 CLV
+    
+    # 客户行为标签
+    behavior_tags = Column(Text)  # JSON格式: ["high_value", "fast_response", "decision_maker"]
+    
+    # 自动分级时间戳
+    last_grading_date = Column(DateTime)
+    grading_reason = Column(Text)  # 分级原因说明
 
     created_at = Column(DateTime)
     updated_at = Column(DateTime)
@@ -755,6 +779,23 @@ class EmailSignature(Base):
     content = Column(Text, nullable=False)  # 签名内容（HTML格式）
     is_default = Column(Boolean, default=False, server_default=text('false'), nullable=False)  # 是否为默认签名
     display_order = Column(Integer, default=0, server_default=text('0'), nullable=False)  # 显示顺序
+    
+    # 标准时间字段
+    created_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.now)
+
+
+class CustomerTag(Base):
+    """客户标签表 - 管理客户标签"""
+    __tablename__ = "customer_tags"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(50), nullable=False, unique=True)  # 标签名称
+    color = Column(String(20), default="#1677ff")  # 标签颜色
+    description = Column(Text)  # 标签描述
+    
+    # 统计字段
+    usage_count = Column(Integer, default=0)  # 使用次数
     
     # 标准时间字段
     created_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'))

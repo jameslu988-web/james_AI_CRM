@@ -200,8 +200,17 @@ async def update_email_account(
         db.close()
         raise HTTPException(status_code=404, detail="邮箱账户不存在")
     
-    # 更新字段
+    # 更新字段（过滤空密码）
     update_data = account_data.dict(exclude_unset=True)
+    
+    # 🔥 关键修复：如果密码字段为空字符串，则不更新（保持原密码）
+    if 'imap_password' in update_data and not update_data['imap_password']:
+        del update_data['imap_password']
+    
+    if 'smtp_password' in update_data and not update_data['smtp_password']:
+        del update_data['smtp_password']
+    
+    # 应用更新
     for field, value in update_data.items():
         setattr(account, field, value)
     
@@ -240,6 +249,9 @@ async def test_email_account(
     current_user: User = Depends(get_current_active_user)
 ):
     """测试邮箱IMAP连接"""
+    import imaplib
+    import socket
+    
     db = get_session()
     account = db.query(EmailAccount).filter(EmailAccount.id == account_id).first()
     
@@ -247,35 +259,150 @@ async def test_email_account(
         db.close()
         raise HTTPException(status_code=404, detail="邮箱账户不存在")
     
+    error_details = []
+    
     try:
-        receiver = EmailReceiver(
-            email_address=account.email_address,
-            password=account.imap_password,
-            provider=account.provider,
-            imap_host=account.imap_host,
-            imap_port=account.imap_port
-        )
-        
-        if receiver.connect():
-            folders = receiver.get_mailbox_list()
-            receiver.disconnect()
-            db.close()
-            
-            return {
-                "success": True,
-                "message": "IMAP连接成功",
-                "mailbox_count": len(folders),
-                "mailboxes": folders[:10]  # 返回前10个文件夹
-            }
-        else:
+        # 步骤1: DNS解析测试
+        try:
+            ip = socket.gethostbyname(account.imap_host)
+            error_details.append(f"✅ DNS解析成功: {account.imap_host} -> {ip}")
+        except socket.gaierror as e:
             db.close()
             return {
                 "success": False,
-                "message": "IMAP连接失败"
+                "message": f"DNS解析失败: {account.imap_host}",
+                "error_type": "dns",
+                "details": [
+                    "❌ 无法解析域名",
+                    "可能原因:",
+                    "  • DNS服务器问题",
+                    "  • 域名不存在或拼写错误",
+                    f"  • 请检查IMAP服务器地址: {account.imap_host}"
+                ]
             }
+        
+        # 步骤2: 端口连接测试
+        try:
+            sock = socket.create_connection((account.imap_host, account.imap_port), timeout=10)
+            sock.close()
+            error_details.append(f"✅ 端口 {account.imap_port} 可以连接")
+        except socket.timeout:
+            db.close()
+            return {
+                "success": False,
+                "message": f"连接超时: {account.imap_host}:{account.imap_port}",
+                "error_type": "timeout",
+                "details": [
+                    "❌ 连接超时（10秒）",
+                    "可能原因:",
+                    "  • 防火墙阻止了IMAP端口（993）",
+                    "  • 服务器无响应",
+                    "  • 网络问题"
+                ]
+            }
+        except socket.error as e:
+            db.close()
+            return {
+                "success": False,
+                "message": f"端口连接失败: {str(e)}",
+                "error_type": "connection",
+                "details": [
+                    "❌ 无法连接到IMAP端口",
+                    "可能原因:",
+                    "  • 端口被防火墙阻止",
+                    "  • IMAP服务未启动",
+                    f"  • 请确认端口号: {account.imap_port}"
+                ]
+            }
+        
+        # 步骤3: IMAP SSL连接和登录测试
+        try:
+            connection = imaplib.IMAP4_SSL(account.imap_host, account.imap_port, timeout=10)
+            error_details.append("✅ SSL连接成功")
+            
+            try:
+                connection.login(account.email_address, account.imap_password)
+                error_details.append("✅ IMAP登录成功")
+                
+                # 获取邮箱文件夹
+                status, folders = connection.list()
+                connection.logout()
+                
+                db.close()
+                return {
+                    "success": True,
+                    "message": "IMAP连接成功！所有测试通过",
+                    "mailbox_count": len(folders) if status == 'OK' else 0,
+                    "mailboxes": [f.decode('utf-8') if isinstance(f, bytes) else str(f) for f in folders[:10]] if status == 'OK' else [],
+                    "details": error_details
+                }
+                
+            except imaplib.IMAP4.error as e:
+                db.close()
+                error_msg = str(e).lower()
+                
+                return {
+                    "success": False,
+                    "message": "IMAP登录失败",
+                    "error_type": "authentication",
+                    "details": [
+                        f"❌ 登录失败: {str(e)}",
+                        "",
+                        "可能原因:",
+                        "  1. ❌ 邮箱密码错误",
+                        "  2. ❌ IMAP服务未启用",
+                        "  3. ❌ 邮箱地址错误",
+                        "",
+                        "解决方案:",
+                        "  1. 登录 Hostinger 控制面板",
+                        "  2. 进入邮箱管理 -> 确认IMAP已启用",
+                        "  3. 检查邮箱密码是否正确",
+                        "  4. 尝试重置邮箱密码后重新配置"
+                    ]
+                }
+                
+        except imaplib.IMAP4.abort as e:
+            db.close()
+            return {
+                "success": False,
+                "message": "IMAP连接中断",
+                "error_type": "abort",
+                "details": [
+                    f"❌ 服务器主动断开连接: {str(e)}",
+                    "可能原因:",
+                    "  • 服务器拒绝连接",
+                    "  • 连接过于频繁",
+                    "  • SSL/TLS版本不兼容"
+                ]
+            }
+            
+        except Exception as e:
+            db.close()
+            return {
+                "success": False,
+                "message": f"SSL连接失败: {str(e)}",
+                "error_type": "ssl",
+                "details": [
+                    f"❌ SSL连接错误: {type(e).__name__}",
+                    f"   {str(e)}",
+                    "可能原因:",
+                    "  • SSL证书问题",
+                    "  • 端口配置错误（应使用993）",
+                    "  • 服务器不支持当前SSL版本"
+                ]
+            }
+        
     except Exception as e:
         db.close()
-        raise HTTPException(status_code=400, detail=f"IMAP测试失败: {str(e)}")
+        return {
+            "success": False,
+            "message": f"测试失败: {str(e)}",
+            "error_type": "unknown",
+            "details": [
+                f"❌ 未知错误: {type(e).__name__}",
+                f"   {str(e)}"
+            ]
+        }
 
 
 @router.post("/email_accounts/{account_id}/test_smtp")

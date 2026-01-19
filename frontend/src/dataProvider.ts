@@ -28,6 +28,34 @@ export const dataProvider = {
   
   // 覆盖getList方法
   getList: (resource: string, params: any) => {
+    // 客户资源特殊处理：确保使用正确的sort格式
+    if (resource === 'customers') {
+      const { page, perPage } = params.pagination
+      const { field, order } = params.sort
+      
+      // 使用后端期望的格式
+      const range = `[${(page - 1) * perPage},${page * perPage - 1}]`
+      const sort = `["${field}","${order}"]`
+      
+      const query: any = {
+        range,
+        sort,
+        filter: JSON.stringify(params.filter || {})
+      }
+      
+      const url = `${apiUrl}/customers?${new URLSearchParams(query).toString()}`
+      
+      return httpClient(url).then(({ headers, json }) => {
+        const contentRange = headers.get('content-range')
+        const total = contentRange ? parseInt(contentRange.split('/').pop() || '0', 10) : json.length
+        
+        return {
+          data: json,
+          total: total,
+        }
+      })
+    }
+    
     // 邮件资源特殊处理
     const emailResources = ['inbox', 'sent', 'drafts', 'email_history']
     if (emailResources.includes(resource)) {

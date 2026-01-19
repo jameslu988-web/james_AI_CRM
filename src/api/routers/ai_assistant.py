@@ -8,7 +8,10 @@ from src.crm.database import get_session, EmailHistory
 from src.email_system.ai_writer import AIEmailWriter
 
 # 🔥 导入Celery任务（用于异步AI分析）
-from src.tasks.ai_tasks import analyze_email_task
+try:
+    from src.tasks.ai_tasks import analyze_email_task
+except ImportError:
+    analyze_email_task = None  # Celery未安装，忽略
 
 router = APIRouter()
 

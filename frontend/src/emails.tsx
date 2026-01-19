@@ -2639,6 +2639,9 @@ export const EmailCreate = (props:any) => {
   const [selectedPromptTemplate, setSelectedPromptTemplate] = useState<number | null>(null)  // 🔥 选择的提示词模板
   const [promptTemplates, setPromptTemplates] = useState<any[]>([])  // 🔥 提示词模板列表
   const [fromDrafts, setFromDrafts] = useState(false)  // 🔥 记录是否从草稿箱进入
+  const [originalEmailTranslated, setOriginalEmailTranslated] = useState('')  // 🔥 原邮件翻译内容
+  const [showOriginalTranslation, setShowOriginalTranslation] = useState(false)  // 🔥 显示原邮件翻译
+  const [translatingOriginal, setTranslatingOriginal] = useState(false)  // 🔥 翻译中状态
   const editorRef = useRef<HTMLDivElement>(null)
   const isInitializedRef = useRef(false)
   const [emailOptions, setEmailOptions] = useState({
@@ -3151,6 +3154,51 @@ export const EmailCreate = (props:any) => {
       }
     } catch (error) {
       console.error('Failed to load email accounts:', error)
+    }
+  }
+  
+  // 🔥 翻译原邮件
+  const translateOriginalEmail = async () => {
+    if (!location.state?.originalBody) {
+      notify('没有原邮件内容', { type: 'warning' })
+      return
+    }
+    
+    if (originalEmailTranslated) {
+      setShowOriginalTranslation(!showOriginalTranslation)
+      return
+    }
+    
+    setTranslatingOriginal(true)
+    try {
+      const token = localStorage.getItem('token')
+      const content = location.state.originalBody
+      
+      const response = await fetch('http://127.0.0.1:8001/api/ai/translate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          content: content,
+          target_lang: 'zh'
+        })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        setOriginalEmailTranslated(data.translated)
+        setShowOriginalTranslation(true)
+        notify('翻译完成', { type: 'success' })
+      } else {
+        notify('翻译失败', { type: 'error' })
+      }
+    } catch (error) {
+      console.error('翻译异常:', error)
+      notify('翻译失败', { type: 'error' })
+    } finally {
+      setTranslatingOriginal(false)
     }
   }
   
@@ -4057,9 +4105,35 @@ export const EmailCreate = (props:any) => {
         {/* 原邮件引用 */}
         {location.state?.subject && (
           <Paper variant="outlined" sx={{ mt: 1 }}>
-            <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#f9fafb', cursor: 'pointer' }} onClick={() => setShowOriginal(!showOriginal)}>
-              <Box sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#6b7280' }}>原邮件</Box>
-              <MuiIconButton size="small">{showOriginal ? <ExpandLessIcon /> : <ExpandMoreIcon />}</MuiIconButton>
+            <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#f9fafb' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ fontSize: '0.875rem', fontWeight: 600, color: '#6b7280', cursor: 'pointer' }} onClick={() => setShowOriginal(!showOriginal)}>
+                  原邮件
+                </Box>
+                {/* 🔥 翻译按钮 */}
+                <Button
+                  size="small"
+                  startIcon={translatingOriginal ? <CircularProgress size={14} /> : <TranslateIcon sx={{ fontSize: 16 }} />}
+                  onClick={translateOriginalEmail}
+                  disabled={translatingOriginal}
+                  sx={{ 
+                    fontSize: '12px',
+                    textTransform: 'none',
+                    color: showOriginalTranslation ? '#1677ff' : '#666',
+                    minWidth: 'auto',
+                    px: 1,
+                    py: 0.5,
+                    '&:hover': {
+                      bgcolor: 'rgba(22, 119, 255, 0.08)'
+                    }
+                  }}
+                >
+                  {originalEmailTranslated ? (showOriginalTranslation ? '查看原文' : '查看翻译') : '翻译'}
+                </Button>
+              </Box>
+              <MuiIconButton size="small" onClick={() => setShowOriginal(!showOriginal)}>
+                {showOriginal ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+              </MuiIconButton>
             </Box>
             <Collapse in={showOriginal}>
               <Box sx={{ p: 2, borderTop: '1px solid #e5e7eb' }}>
@@ -4073,7 +4147,7 @@ export const EmailCreate = (props:any) => {
                 </Box>
                 <Divider sx={{ my: 1.5 }} />
                 <Box sx={{ fontSize: '0.813rem', color: '#374151' }}>
-                  <HtmlContent content={location.state.originalBody || ''} maxHeight={300} />
+                  <HtmlContent content={showOriginalTranslation ? originalEmailTranslated : (location.state.originalBody || '')} maxHeight={300} />
                 </Box>
               </Box>
             </Collapse>

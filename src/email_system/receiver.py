@@ -288,10 +288,23 @@ class EmailReceiver:
                 
                 # 🔥 检查是否是内嵌图片（有 Content-ID 且是图片类型）
                 # 关键判断：内嵌图片一定有 Content-ID，用于 HTML 中的 cid: 引用
-                is_inline_image = (
-                    content_id and 
-                    content_type.startswith('image/')
+                # 兼容性判断：某些邮件客户端将内嵌图片的 Content-Type 设为 application/octet-stream
+                # 因此需要同时检查文件扩展名
+                
+                # 获取文件名（可能为空）
+                temp_filename = part.get_filename()
+                if temp_filename:
+                    temp_filename = self._decode_str(temp_filename).lower()
+                
+                # 判断是否为图片类型（通过 Content-Type 或文件扩展名）
+                is_image_type = (
+                    content_type.startswith('image/') or
+                    (temp_filename and any(temp_filename.endswith(ext) for ext in 
+                     ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico']))
                 )
+                
+                # 最终判断：必须有 Content-ID 且是图片类型
+                is_inline_image = content_id and is_image_type
                 
                 # 检查是否是附件或内嵌图片
                 if "attachment" in content_disposition or part.get_filename() or is_inline_image:
