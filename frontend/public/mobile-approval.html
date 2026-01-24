@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>邮件审核</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+            background: #f5f5f5;
+            font-size: 14px;
+            line-height: 1.6;
+            color: #333;
+        }
+        
+        .header {
+            background: #1976d2;
+            color: white;
+            padding: 12px 15px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-top: 4px;
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .section {
+            background: white;
+            margin: 10px;
+            border-radius: 8px;
+            overflow: visible;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        /* 🔥 原始邮件区域的特殊样式 */
+        .section.original-email {
+            margin-top: 0; /* 🔥 移除顶部间距，紧贴Header */
+        }
+        
+        .section-header {
+            background: #f8f9fa;
+            padding: 12px 15px;
+            border-bottom: 1px solid #e0e0e0;
+            font-weight: 600;
+            font-size: 15px;
+            color: #555;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        /* 🔥 固定原始邮件标题栏 */
+        .section-header.sticky {
+            position: sticky;
+            top: 44px; /* 🔥 调整为顶部Header的实际高度 */
+            z-index: 90;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 8px 8px 0 0;
+        }
+        
+        .icon-btn {
+            background: none;
+            border: 1px solid #ddd;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #666;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-appearance: none;
+        }
+        
+        .icon-btn:active {
+            background: #f0f0f0;
+        }
+        
+        .icon-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 6px;
+        }
+        
+        .section-content {
+            padding: 15px;
+        }
+        
+        .info-row {
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+        
+        .info-label {
+            color: #666;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .info-value {
+            color: #333;
+            word-break: break-word;
+        }
+        
+        .email-body {
+            background: #f9f9f9;
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 13px;
+            line-height: 1.8;
+            word-break: break-word;
+            max-height: 400px;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .buttons {
+            position: sticky;
+            bottom: 0;
+            background: white;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+            box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            -webkit-appearance: none;
+        }
+        
+        .btn-approve {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-approve:active {
+            background: #388e3c;
+        }
+        
+        .btn-reject {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-reject:active {
+            background: #d32f2f;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #1976d2;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            margin: 15px;
+            border-radius: 4px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📧 邮件审核</h1>
+        <div class="status-badge" id="status">加载中...</div>
+    </div>
+
+    <div id="loading" class="loading">
+        <div class="spinner"></div>
+        <div id="loadingText">正在加载审核任务...</div>
+        <div style="margin-top:15px; font-size:12px; color:#999;" id="debugInfo"></div>
+    </div>
+
+    <div id="error" style="display:none;"></div>
+
+    <div id="content" style="display:none;">
+        <div class="section original-email">
+            <div class="section-header sticky">
+                <span>📩 原始邮件</span>
+                <div class="btn-group">
+                    <button class="icon-btn" id="translateOriginalBtn" onclick="translateOriginal()">
+                        🌐 翻译
+                    </button>
+                    <button class="icon-btn" id="toggleOriginalBtn" onclick="toggleOriginalContent()">
+                        ⬆️ 折叠
+                    </button>
+                </div>
+            </div>
+            <div class="section-content" id="originalEmailContent" style="transition: max-height 0.3s ease-out, opacity 0.3s ease-out; overflow: hidden; padding-top: 60px; margin-top: -60px;">
+                <div class="info-row">
+                    <div class="info-label">发件人</div>
+                    <div class="info-value" id="fromEmail"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">主题</div>
+                    <div class="info-value" id="subject"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">时间</div>
+                    <div class="info-value" id="sentAt"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">正文</div>
+                    <div class="email-body" id="originalBody"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-header">
+                <span>🤖 AI生成的回复</span>
+                <div class="btn-group">
+                    <button class="icon-btn" id="translateReplyBtn" onclick="translateReply()">
+                        🌐 翻译
+                    </button>
+                    <button class="icon-btn" onclick="startEdit()">
+                        ✏️ 编辑
+                    </button>
+                    <button class="icon-btn" onclick="showRegenerateDialog()">
+                        🔄 重新生成
+                    </button>
+                </div>
+            </div>
+            <div class="section-content">
+                <div class="info-row">
+                    <div class="info-label">回复主题</div>
+                    <div class="info-value" id="replySubject"></div>
+                </div>
+                <div class="info-row">
+                    <div class="info-label">回复正文</div>
+                    <div class="email-body" id="replyBody" contenteditable="false"></div>
+                    <div style="margin-top:10px; display:none;" id="editActions">
+                        <button class="btn btn-approve" onclick="saveEdit()" style="flex:none; padding:8px 16px;">💾 保存</button>
+                        <button class="btn btn-reject" onclick="cancelEdit()" style="flex:none; padding:8px 16px; margin-left:10px;">❌ 取消</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div style="height: 70px;"></div> <!-- Spacer for fixed buttons -->
+    </div>
+
+    <div id="buttons" class="buttons" style="display:none;">
+        <button class="btn btn-approve" onclick="handleApprove()">✓ 通过</button>
+        <button class="btn btn-reject" onclick="handleReject()">✗ 拒绝</button>
+    </div>
+
+    <!-- AI重新生成对话框 -->
+    <div id="regenerateDialog" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:1000; padding:20px;">
+        <div style="background:white; border-radius:8px; padding:20px; max-width:500px; margin:50px auto;">
+            <h3 style="margin-top:0;">🔄 AI重新生成回复</h3>
+            <p style="color:#666; font-size:14px;">告诉AI如何改进回复内容：</p>
+            <textarea id="regenerateInstruction" rows="4" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; font-size:14px; resize:vertical;"
+                placeholder="例如：使用更正式的语气，增加产品优势介绍"></textarea>
+            <div style="margin-top:15px; display:flex; gap:10px;">
+                <button class="btn btn-approve" onclick="regenerateReply()" style="flex:1;">🚀 重新生成</button>
+                <button class="btn btn-reject" onclick="closeRegenerateDialog()" style="flex:1;">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 从URL获取任务ID
+        const urlParams = new URLSearchParams(window.location.search);
+        const taskId = urlParams.get('id') || window.location.hash.match(/\/(\d+)/)?.[1] || '10';
+        
+        // API配置
+        // 🔥 修复：支持内网访问，自动检测API地址
+        let apiHost = window.location.hostname;
+        
+        // 如果是localhost，尝试使用实际IP地址（需要前端配置或从URL参数获取）
+        // 从URL参数获取API地址，例如：?api_host=192.168.1.100
+        const apiHostParam = urlParams.get('api_host');
+        if (apiHostParam) {
+            apiHost = apiHostParam;
+            console.log('[Init] Using API host from URL param:', apiHost);
+        } else if (apiHost === 'localhost' || apiHost === '127.0.0.1') {
+            // 尝试从 referer 或使用默认地址
+            console.warn('[Init] Warning: Using localhost, may not work on mobile!');
+            console.warn('[Init] Please add ?api_host=YOUR_IP to the URL');
+        }
+        
+        const apiUrl = `http://${apiHost}:8001/api/approval_tasks/${taskId}`;
+        
+        let taskData = null;
+        let originalBodyText = '';  // 原始邮件原文
+        let originalBodyTranslated = '';  // 原始邮件译文
+        let replyBodyText = '';  // AI回复原文
+        let replyBodyTranslated = '';  // AI回复译文
+        let isOriginalTranslated = false;  // 原始邮件是否显示译文
+        let isReplyTranslated = false;  // AI回复是否显示译文
+        let isOriginalCollapsed = false;  // 原始邮件是否折叠
+
+        console.log('[Init] Task ID:', taskId);
+        console.log('[Init] API URL:', apiUrl);
+        console.log('[Init] User Agent:', navigator.userAgent);
+        console.log('[Init] Location:', window.location.href);
+        
+        // 显示调试信息
+        const debugInfo = document.getElementById('debugInfo');
+        debugInfo.innerHTML = `
+            Task ID: ${taskId}<br>
+            API: ${apiUrl}<br>
+            Host: ${apiHost}
+        `;
+
+        // 加载任务数据
+        function loadTask() {
+            console.log('[LoadTask] Fetching data...');
+            document.getElementById('loadingText').textContent = '连接后端API...';
+            
+            // 添加超时处理
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
+            
+            fetch(apiUrl, { signal: controller.signal })
+                .then(response => {
+                    clearTimeout(timeoutId);
+                    console.log('[LoadTask] Response status:', response.status);
+                    document.getElementById('loadingText').textContent = `收到响应: ${response.status}`;
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('[LoadTask] Data received:', data);
+                    document.getElementById('loadingText').textContent = '解析数据...';
+                    taskData = data;
+                    displayTask(data);
+                })
+                .catch(error => {
+                    clearTimeout(timeoutId);
+                    console.error('[LoadTask] Error:', error);
+                    
+                    let errorMsg = `加载失败: ${error.message}<br><br>`;
+                    
+                    if (error.name === 'AbortError') {
+                        errorMsg += '连接超时，请检查网络连接<br><br>';
+                    }
+                    
+                    errorMsg += `API: ${apiUrl}<br><br>`;
+                    errorMsg += `请确保:<br>`;
+                    errorMsg += `1. 后端服务正在运行 (http://${apiHost}:8001)<br>`;
+                    errorMsg += `2. 网络连接正常<br>`;
+                    errorMsg += `3. 任务ID (${taskId}) 存在<br><br>`;
+                    errorMsg += `<strong>调试信息:</strong><br>`;
+                    errorMsg += `User Agent: ${navigator.userAgent.substring(0, 50)}...<br>`;
+                    errorMsg += `当前URL: ${window.location.href}`;
+                    
+                    showError(errorMsg);
+                });
+        }
+
+        // 显示任务数据
+        function displayTask(data) {
+            console.log('[DisplayTask] Rendering data...');
+            
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            
+            // 状态映射
+            const statusMap = {
+                'pending': '⏳ 待审核',
+                'approved': '✅ 已通过',
+                'rejected': '❌ 已拒绝'
+            };
+            document.getElementById('status').textContent = statusMap[data.status] || data.status;
+            
+            // 原始邮件
+            const fromName = data.original_email.from_name || '';
+            const fromEmail = data.original_email.from_email || '';
+            document.getElementById('fromEmail').textContent = fromName ? `${fromName} <${fromEmail}>` : fromEmail;
+            document.getElementById('subject').textContent = data.original_email.subject || '(无主题)';
+            document.getElementById('sentAt').textContent = data.original_email.sent_at || '-';
+            
+            const originalBody = data.original_email.html_body || data.original_email.body || '(无内容)';
+            originalBodyText = originalBody.replace(/\n/g, '<br>');
+            document.getElementById('originalBody').innerHTML = originalBodyText;
+            
+            // AI回复
+            document.getElementById('replySubject').textContent = data.draft_subject || '(无主题)';
+            replyBodyText = data.draft_html || data.draft_body || '(无回复内容)';
+            document.getElementById('replyBody').innerHTML = replyBodyText;
+            
+            // 显示按钮（仅待审核状态）
+            if (data.status === 'pending') {
+                document.getElementById('buttons').style.display = 'flex';
+            }
+            
+            console.log('[DisplayTask] Render complete');
+        }
+
+        // 显示错误
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('error').style.display = 'block';
+            document.getElementById('error').innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        // 通过审核
+        async function handleApprove() {
+            if (!confirm('确认通过此审核任务？邮件将自动发送。')) {
+                return;
+            }
+            
+            console.log('[Approve] Starting...');
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = '处理中...';
+            
+            try {
+                const response = await fetch(`http://${apiHost}:8001/api/approval_tasks/${taskId}/approve?approved_by=Mobile`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    alert('✅ 审核通过！邮件已自动发送。');
+                    window.location.reload();
+                } else {
+                    const error = await response.text();
+                    alert(`操作失败: ${error}`);
+                    btn.disabled = false;
+                    btn.textContent = '✓ 通过';
+                }
+            } catch (error) {
+                console.error('[Approve] Error:', error);
+                alert(`网络错误: ${error.message}`);
+                btn.disabled = false;
+                btn.textContent = '✓ 通过';
+            }
+        }
+
+        // 折叠/展开原始邮件内容
+        function toggleOriginalContent() {
+            const content = document.getElementById('originalEmailContent');
+            const btn = document.getElementById('toggleOriginalBtn');
+            
+            if (isOriginalCollapsed) {
+                // 展开
+                content.style.maxHeight = content.scrollHeight + 'px';
+                content.style.opacity = '1';
+                btn.textContent = '⬆️ 折叠';
+                isOriginalCollapsed = false;
+                
+                // 动画完成后移除maxHeight限制，允许内容自由增长
+                setTimeout(() => {
+                    if (!isOriginalCollapsed) {
+                        content.style.maxHeight = 'none';
+                    }
+                }, 300);
+            } else {
+                // 折叠
+                // 先设置当前高度，然后过渡到0
+                content.style.maxHeight = content.scrollHeight + 'px';
+                // 强制重绘
+                content.offsetHeight;
+                content.style.maxHeight = '0';
+                content.style.opacity = '0';
+                btn.textContent = '⬇️ 展开';
+                isOriginalCollapsed = true;
+            }
+        }
+        async function handleReject() {
+            const reason = prompt('请输入拒绝原因（可选）:');
+            if (reason === null) return; // 用户取消
+            
+            console.log('[Reject] Starting...');
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = '处理中...';
+            
+            try {
+                const url = new URL(`http://${apiHost}:8001/api/approval_tasks/${taskId}/reject`);
+                url.searchParams.append('rejected_by', 'Mobile');
+                if (reason) {
+                    url.searchParams.append('reason', reason);
+                }
+                
+                const response = await fetch(url.toString(), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    alert('✅ 已拒绝');
+                    window.location.reload();
+                } else {
+                    const error = await response.text();
+                    alert(`操作失败: ${error}`);
+                    btn.disabled = false;
+                    btn.textContent = '✗ 拒绝';
+                }
+            } catch (error) {
+                console.error('[Reject] Error:', error);
+                alert(`网络错误: ${error.message}`);
+                btn.disabled = false;
+                btn.textContent = '✗ 拒绝';
+            }
+        }
+
+        // 翻译原始邮件
+        async function translateOriginal() {
+            const btn = document.getElementById('translateOriginalBtn');
+            
+            // 如果已经翻译过，切换显示
+            if (originalBodyTranslated) {
+                isOriginalTranslated = !isOriginalTranslated;
+                document.getElementById('originalBody').innerHTML = isOriginalTranslated ? originalBodyTranslated : originalBodyText;
+                btn.textContent = isOriginalTranslated ? '🌐 原文' : '🌐 翻译';
+                return;
+            }
+            
+            // 检查是否有内容可以翻译
+            if (!originalBodyText || !taskData) {
+                alert('邮件内容还未加载，请稍后再试');
+                return;
+            }
+            
+            // 首次翻译
+            btn.disabled = true;
+            btn.textContent = '翻译中...';
+            
+            try {
+                // 🔥 直接使用已经显示的HTML内容，而不是从 taskData 中获取
+                const content = originalBodyText;
+                
+                console.log('[TranslateOriginal] 翻译内容长度:', content.length);
+                console.log('[TranslateOriginal] API地址:', `http://${apiHost}:8001/api/ai/translate`);
+                
+                const response = await fetch(`http://${apiHost}:8001/api/ai/translate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: content,
+                        target_lang: 'zh'
+                    })
+                });
+                
+                console.log('[TranslateOriginal] 响应状态:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('[TranslateOriginal] 翻译成功，译文长度:', result.translated?.length || 0);
+                    originalBodyTranslated = result.translated || '';
+                    isOriginalTranslated = true;
+                    document.getElementById('originalBody').innerHTML = originalBodyTranslated;
+                    btn.textContent = '🌐 原文';
+                } else {
+                    const errorText = await response.text();
+                    console.error('[TranslateOriginal] Error:', errorText);
+                    alert('翻译失败：' + errorText);
+                    btn.textContent = '🌐 翻译';
+                }
+            } catch (error) {
+                console.error('[TranslateOriginal] Error:', error);
+                alert(`翻译错误: ${error.message}`);
+                btn.textContent = '🌐 翻译';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 翻译AI回复
+        async function translateReply() {
+            const btn = document.getElementById('translateReplyBtn');
+            
+            // 如果已经翻译过，切换显示
+            if (replyBodyTranslated) {
+                isReplyTranslated = !isReplyTranslated;
+                document.getElementById('replyBody').innerHTML = isReplyTranslated ? replyBodyTranslated : replyBodyText;
+                btn.textContent = isReplyTranslated ? '🌐 原文' : '🌐 翻译';
+                return;
+            }
+            
+            // 检查是否有内容可以翻译
+            if (!replyBodyText || !taskData) {
+                alert('AI回复内容还未加载，请稍后再试');
+                return;
+            }
+            
+            // 首次翻译
+            btn.disabled = true;
+            btn.textContent = '翻译中...';
+            
+            try {
+                // 🔥 直接使用已经显示的HTML内容
+                const content = replyBodyText;
+                
+                console.log('[TranslateReply] 翻译内容长度:', content.length);
+                console.log('[TranslateReply] API地址:', `http://${apiHost}:8001/api/ai/translate`);
+                
+                const response = await fetch(`http://${apiHost}:8001/api/ai/translate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: content,
+                        target_lang: 'zh'
+                    })
+                });
+                
+                console.log('[TranslateReply] 响应状态:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('[TranslateReply] 翻译成功，译文长度:', result.translated?.length || 0);
+                    replyBodyTranslated = result.translated || '';
+                    isReplyTranslated = true;
+                    document.getElementById('replyBody').innerHTML = replyBodyTranslated;
+                    btn.textContent = '🌐 原文';
+                } else {
+                    const errorText = await response.text();
+                    console.error('[TranslateReply] Error:', errorText);
+                    alert('翻译失败：' + errorText);
+                    btn.textContent = '🌐 翻译';
+                }
+            } catch (error) {
+                console.error('[TranslateReply] Error:', error);
+                alert(`翻译错误: ${error.message}`);
+                btn.textContent = '🌐 翻译';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // 开始编辑
+        function startEdit() {
+            const replyBody = document.getElementById('replyBody');
+            const editActions = document.getElementById('editActions');
+            
+            // 如果正在显示译文，先切换回原文
+            if (isReplyTranslated) {
+                replyBody.innerHTML = replyBodyText;
+                isReplyTranslated = false;
+                document.getElementById('translateReplyBtn').textContent = '🌐 翻译';
+            }
+            
+            replyBody.contentEditable = 'true';
+            replyBody.style.border = '2px solid #1976d2';
+            replyBody.style.background = '#fffbf0';
+            replyBody.focus();
+            editActions.style.display = 'block';
+        }
+
+        // 保存编辑
+        async function saveEdit() {
+            const replyBody = document.getElementById('replyBody');
+            const editActions = document.getElementById('editActions');
+            const newContent = replyBody.innerHTML;
+            
+            try {
+                const response = await fetch(`http://${apiHost}:8001/api/approval_tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        draft_body: newContent,
+                        draft_html: newContent
+                    })
+                });
+                
+                if (response.ok) {
+                    replyBodyText = newContent;
+                    replyBody.contentEditable = 'false';
+                    replyBody.style.border = '1px solid #d9d9d9';
+                    replyBody.style.background = 'white';
+                    editActions.style.display = 'none';
+                    alert('✅ 保存成功');
+                } else {
+                    alert('保存失败');
+                }
+            } catch (error) {
+                console.error('[SaveEdit] Error:', error);
+                alert(`保存错误: ${error.message}`);
+            }
+        }
+
+        // 取消编辑
+        function cancelEdit() {
+            const replyBody = document.getElementById('replyBody');
+            const editActions = document.getElementById('editActions');
+            
+            replyBody.innerHTML = replyBodyText;
+            replyBody.contentEditable = 'false';
+            replyBody.style.border = '1px solid #d9d9d9';
+            replyBody.style.background = 'white';
+            editActions.style.display = 'none';
+        }
+
+        // 显示重新生成对话框
+        function showRegenerateDialog() {
+            document.getElementById('regenerateDialog').style.display = 'block';
+            document.getElementById('regenerateInstruction').value = '';
+        }
+
+        // 关闭重新生成对话框
+        function closeRegenerateDialog() {
+            document.getElementById('regenerateDialog').style.display = 'none';
+        }
+
+        // AI重新生成回复
+        async function regenerateReply() {
+            const instruction = document.getElementById('regenerateInstruction').value;
+            const dialog = document.getElementById('regenerateDialog');
+            
+            if (!instruction.trim()) {
+                alert('请输入调整指令');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`http://${apiHost}:8001/api/approval_tasks/${taskId}/regenerate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ instruction: instruction })
+                });
+                
+                if (response.ok) {
+                    alert('✅ AI重新生成成功！');
+                    dialog.style.display = 'none';
+                    // 重新加载数据
+                    window.location.reload();
+                } else {
+                    const error = await response.text();
+                    alert(`重新生成失败: ${error}`);
+                }
+            } catch (error) {
+                console.error('[RegenerateReply] Error:', error);
+                alert(`网络错误: ${error.message}`);
+            }
+        }
+
+        // 页面加载时执行
+        loadTask();
+    </script>
+</body>
+</html>

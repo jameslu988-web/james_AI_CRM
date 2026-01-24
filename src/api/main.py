@@ -1,5 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from concurrent.futures import ThreadPoolExecutor
@@ -7,6 +9,20 @@ from src.crm.database import init_db, get_session, EmailAccount
 from datetime import datetime, timedelta
 import logging
 import asyncio
+import uuid
+import os
+
+# 导入异常处理器
+from .exceptions import (
+    BusinessException,
+    business_exception_handler,
+    validation_exception_handler,
+    sqlalchemy_exception_handler,
+    global_exception_handler
+)
+
+# 导入日志系统
+from src.utils.logging_config import setup_logging, set_request_id
 from .routers import customers, auth
 from .routers import orders
 from .routers import emails
@@ -28,9 +44,16 @@ from .routers import prospecting  # 🔥 新增：流量获取路由
 from .routers import customer_grading  # 🔥 新增：客户分级系统
 from .routers import sales_funnel  # 🔥 新增：销售漏斗可视化
 from .routers import tags  # 🔥 新增：客户标签系统
+from .routers import auto_reply  # 🔥 新增：自动回复与审核系统
+from .routers import translate  # 🔥 新增：翻译功能
+from .routers import health  # 🔥 新增：健康检查
 
-# 配置日志
-logging.basicConfig(level=logging.INFO)
+# 配置日志系统
+setup_logging(
+    log_level=os.getenv('LOG_LEVEL', 'INFO'),
+    log_dir='logs',
+    app_name='crm_system'
+)
 logger = logging.getLogger(__name__)
 
 # 创建调度器和线程池
@@ -188,23 +211,61 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 🔥 启用 CORS 以便前端 React Admin 调用
+# 注册异常处理器
+app.add_exception_handler(BusinessException, business_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
+app.add_exception_handler(Exception, global_exception_handler)
+
+# 🔥 CORS配置（使用白名单模式）
+ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5173,http://localhost:5174').split(',')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允许所有来源
-    allow_credentials=False,  # 当 allow_origins=["*"] 时必须为 False
-    allow_methods=["*"],  # 允许所有方法
-    allow_headers=["*"],  # 允许所有头部
-    expose_headers=["Content-Range", "X-Total-Count", "Access-Control-Expose-Headers"],  # 暴露特定头部
+    allow_origins=ALLOWED_ORIGINS,  # 使用白名单
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allow_headers=["*"],
+    expose_headers=["Content-Range", "X-Total-Count", "X-Request-ID"],
+    max_age=3600
 )
 
-# 🔥 添加中间件打印请求信息
+# 🔥 请求ID中间件和日志中间件
 @app.middleware("http")
-async def log_requests(request, call_next):
-    print(f"📥 收到请求: {request.method} {request.url}")
-    print(f"   Origin: {request.headers.get('origin', 'None')}")
+async def request_middleware(request: Request, call_next):
+    # 生成或获取请求ID
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    set_request_id(request_id)
+    
+    # 记录请求
+    start_time = datetime.utcnow()
+    logger.info(
+        f"收到请求: {request.method} {request.url.path}",
+        extra={
+            "method": request.method,
+            "path": str(request.url.path),
+            "client_ip": request.client.host if request.client else None,
+            "user_agent": request.headers.get("user-agent")
+        }
+    )
+    
+    # 处理请求
     response = await call_next(request)
-    print(f"📤 响应状态: {response.status_code}")
+    
+    # 添加请求ID到响应头
+    response.headers["X-Request-ID"] = request_id
+    
+    # 记录响应
+    duration = (datetime.utcnow() - start_time).total_seconds() * 1000
+    logger.info(
+        f"响应请求: {request.method} {request.url.path} - {response.status_code}",
+        extra={
+            "method": request.method,
+            "path": str(request.url.path),
+            "status_code": response.status_code,
+            "duration": round(duration, 2)
+        }
+    )
+    
     return response
 
 # 初始化数据库（沿用现有 SQLite/SQLAlchemy）
@@ -233,8 +294,6 @@ app.include_router(prospecting.router, prefix="/api", tags=["流量获取"])  # 
 app.include_router(customer_grading.router, prefix="/api", tags=["客户分级"])  # 🔥 新增客户分级系统 
 app.include_router(sales_funnel.router, prefix="/api", tags=["销售漏斗"])  # 🔥 新增销售漏斗可视化 
 app.include_router(tags.router, prefix="/api", tags=["客户标签"])  # 🔥 新增客户标签系统 
-
-# 健康检查
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+app.include_router(auto_reply.router, prefix="/api", tags=["自动回复与审核"])  # 🔥 新增自动回复与审核系统
+# app.include_router(translate.router)  # 🔥 已废弃：使用ai_assistant中的翻译API替代
+app.include_router(health.router, prefix="/api", tags=["健康检查"])  # 🔥 新增健康检查

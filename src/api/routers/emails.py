@@ -1,16 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse  # 🔥 新增
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from typing import List, Optional
 from datetime import datetime
 import json
+import logging
 from pathlib import Path  # 🔥 新增
 
 from src.crm.database import get_session, EmailHistory, EmailAccount
 from ..schemas import EmailCreate, EmailUpdate, EmailOut
 from src.email_system.sender import EmailSender
+from ..exceptions import BusinessException, DatabaseException, ResourceNotFoundException
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -93,8 +97,8 @@ def list_emails(
         is_deleted_filter = f.get("is_deleted", "")  # 新增：是否已删除筛选
         business_stage_filter = f.get("business_stage", "")  # 🔥 新增：业务阶段筛选
         
-        # 🔥 调试：打印筛选参数
-        print(f"📊 邮件列表筛选参数：filter={f}, business_stage={business_stage_filter}")
+        # 🔥 筛选参数日志
+        logger.debug(f"邮件列表筛选", extra={"filter": f, "business_stage": business_stage_filter})
         
         # 默认只显示未删除的邮件（除非明确查询已删除）
         if is_deleted_filter:
@@ -155,16 +159,16 @@ def list_emails(
         
     except Exception as e:
         import traceback
-        print(f"❌ 邮件列表API错误: {str(e)}")
-        print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"邮件列表API错误", extra={"error": str(e), "traceback": traceback.format_exc()})
+        raise BusinessException(f"获取邮件列表失败: {str(e)}")
 
 
 @router.get("/email_history/{email_id}", response_model=EmailOut)
 def get_email(email_id: int, db: Session = Depends(get_db)):
     e = db.query(EmailHistory).filter(EmailHistory.id == email_id).first()
     if not e:
-        raise HTTPException(status_code=404, detail="Email not found")
+        logger.warning(f"邮件不存在", extra={"email_id": email_id})
+        raise ResourceNotFoundException("邮件不存在", details={"email_id": email_id})
     return e
 
 
@@ -188,7 +192,7 @@ def create_email(email_in: EmailCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(email)
         
-        print(f"✅ 草稿已保存: ID={email.id}, 主题={email.subject}, 创建时间={email.created_at}")
+        logger.info(f"草稿已保存", extra={"email_id": email.id, "subject": email.subject})
         return email
     
     # 以下是发送邮件的逻辑
@@ -234,11 +238,11 @@ def create_email(email_in: EmailCreate, db: Session = Depends(get_db)):
                 
                 if not result['success']:
                     send_error = result['message']
-                    print(f"⚠️ 邮件发送失败: {send_error}")
+                    logger.warning(f"邮件发送失败", extra={"to_email": data['to_email'], "error": send_error})
                     # 🔥 设置投递状态为失败
                     data['delivery_status'] = 'failed'
                 else:
-                    print(f"✅ 邮件已通过SMTP发送: {data['to_email']}")
+                    logger.info(f"邮件已通过SMTP发送", extra={"to_email": data['to_email'], "subject": data.get('subject')})
                     # 🔥 SMTP发送成功，设置为 pending（等待投递确认）
                     data['delivery_status'] = 'pending'
                     # 更新账户发送统计
@@ -246,13 +250,13 @@ def create_email(email_in: EmailCreate, db: Session = Depends(get_db)):
                     db.commit()
             else:
                 send_error = f"未找到发件人账户的SMTP配置: {data['from_email']}"
-                print(f"⚠️ {send_error}")
+                logger.warning(f"SMTP配置缺失", extra={"from_email": data['from_email']})
                 # 🔥 没有SMTP配置，设置为 unknown
                 data['delivery_status'] = 'unknown'
                 
         except Exception as e:
             send_error = f"发送异常: {str(e)}"
-            print(f"❌ {send_error}")
+            logger.error(f"邮件发送异常", extra={"error": str(e), "to_email": data.get('to_email')})
             # 🔥 发送异常，设置为 failed
             data['delivery_status'] = 'failed'
             data['bounce_reason'] = str(e)
@@ -280,13 +284,14 @@ def update_email(email_id: int, email_upd: EmailUpdate, db: Session = Depends(ge
     """更新邮件：支持从草稿发送（status: draft -> sent）"""
     e = db.query(EmailHistory).filter(EmailHistory.id == email_id).first()
     if not e:
-        raise HTTPException(status_code=404, detail="Email not found")
+        logger.warning(f"更新邮件失败: 邮件不存在", extra={"email_id": email_id})
+        raise ResourceNotFoundException("邮件不存在", details={"email_id": email_id})
     
     update_data = email_upd.dict(exclude_unset=True)
     
     # 如果从草稿变为已发送，尝试发送邮件
     if e.status == 'draft' and update_data.get('status') == 'sent':
-        print(f"📧 尝试从草稿发送邮件: ID={email_id}")
+        logger.info(f"尝试从草稿发送邮件", extra={"email_id": email_id})
         
         # 查找发件人账户的SMTP配置
         if e.from_email and e.to_email:
@@ -322,27 +327,27 @@ def update_email(email_id: int, email_upd: EmailUpdate, db: Session = Depends(ge
                     )
                     
                     if result['success']:
-                        print(f"✅ 草稿已发送: {e.to_email}")
+                        logger.info(f"草稿已发送", extra={"email_id": email_id, "to_email": e.to_email})
                         update_data['sent_at'] = datetime.now()
                         # 🔥 设置投递状态为 pending
                         update_data['delivery_status'] = 'pending'
                         account.total_sent += 1
                         db.commit()
                     else:
-                        print(f"⚠️ 发送失败: {result['message']}")
+                        logger.warning(f"发送失败", extra={"email_id": email_id, "error": result['message']})
                         update_data['status'] = 'failed'
                         update_data['internal_notes'] = f"[发送失败] {result['message']}"
                         # 🔥 设置投递状态为 failed
                         update_data['delivery_status'] = 'failed'
                         update_data['bounce_reason'] = result['message']
                 else:
-                    print(f"⚠️ 未找到SMTP配置")
+                    logger.warning(f"未找到SMTP配置", extra={"email_id": email_id, "from_email": e.from_email})
                     update_data['status'] = 'failed'
                     update_data['internal_notes'] = f"[发送失败] 未找到发件人账户的SMTP配置"
                     # 🔥 设置投递状态为 unknown
                     update_data['delivery_status'] = 'unknown'
             except Exception as ex:
-                print(f"❌ 发送异常: {str(ex)}")
+                logger.error(f"发送异常", extra={"email_id": email_id, "error": str(ex)})
                 update_data['status'] = 'failed'
                 update_data['internal_notes'] = f"[发送异常] {str(ex)}"
                 # 🔥 设置投递状态为 failed
@@ -369,33 +374,33 @@ def patch_email(email_id: int, email_upd: EmailUpdate, db: Session = Depends(get
     
     update_data = email_upd.dict(exclude_unset=True)
     
-    # 🔥 强制输出日志
-    print(f"🔄 PATCH请求: 邮件ID={email_id}, 更新字段={list(update_data.keys())}", flush=True)
+    # 🔥 PATCH请求日志
+    logger.info(f"PATCH邮件", extra={"email_id": email_id, "fields": list(update_data.keys())})
     sys.stdout.flush()
     
     # 🔥 特殊处理：当设置 is_deleted=True 时，自动设置 deleted_at
     if 'is_deleted' in update_data and update_data['is_deleted'] is True:
         if 'deleted_at' not in update_data:
             update_data['deleted_at'] = datetime.now()
-            print(f"  🗑️ 自动设置 deleted_at: {update_data['deleted_at']}", flush=True)
+            logger.debug(f"自动设置deleted_at", extra={"email_id": email_id})
     
     # 🔥 特殊处理：当恢复邮件时，清空 deleted_at
     if 'is_deleted' in update_data and update_data['is_deleted'] is False:
         update_data['deleted_at'] = None
         update_data['deleted_by'] = None
-        print(f"  ⚙️ 恢复邮件，清空 deleted_at 和 deleted_by", flush=True)
+        logger.debug(f"恢复邮件", extra={"email_id": email_id})
     
     # 应用更新
     for k, v in update_data.items():
         old_value = getattr(e, k, None)
         setattr(e, k, v)
-        print(f"  - {k}: {old_value} -> {v}", flush=True)
+        logger.debug(f"更新字段", extra={"email_id": email_id, "field": k, "old": old_value, "new": v})
         sys.stdout.flush()
     
     db.commit()
     db.refresh(e)
     
-    print(f"✅ 更新成功: is_deleted={e.is_deleted}, deleted_at={e.deleted_at}", flush=True)
+    logger.info(f"PATCH邮件成功", extra={"email_id": email_id, "is_deleted": e.is_deleted})
     sys.stdout.flush()
     return e
 
@@ -405,13 +410,16 @@ def delete_email(email_id: int, db: Session = Depends(get_db)):
     """软删除邮件（移入回收站）"""
     e = db.query(EmailHistory).filter(EmailHistory.id == email_id).first()
     if not e:
-        raise HTTPException(status_code=404, detail="Email not found")
+        logger.warning(f"删除邮件失败: 邮件不存在", extra={"email_id": email_id})
+        raise ResourceNotFoundException("邮件不存在", details={"email_id": email_id})
     
     # 软删除：只标记，不真正删除
+    logger.warning(f"软删除邮件", extra={"email_id": email_id, "subject": e.subject})
     e.is_deleted = True
     e.deleted_at = datetime.now()
     db.commit()
     
+    logger.info(f"邮件已移入回收站", extra={"email_id": email_id})
     return {"deleted": True, "id": email_id, "message": "已移入回收站"}
 
 
@@ -424,15 +432,18 @@ def restore_email(email_id: int, db: Session = Depends(get_db)):
     ).first()
     
     if not e:
-        raise HTTPException(status_code=404, detail="Email not found in trash")
+        logger.warning(f"恢复邮件失败: 回收站中无此邮件", extra={"email_id": email_id})
+        raise ResourceNotFoundException("回收站中无此邮件", details={"email_id": email_id})
     
     # 恢复邮件
+    logger.info(f"恢复邮件", extra={"email_id": email_id, "subject": e.subject})
     e.is_deleted = False
     e.deleted_at = None
     e.deleted_by = None
     db.commit()
     db.refresh(e)
     
+    logger.info(f"邮件已恢复", extra={"email_id": email_id})
     return {"restored": True, "id": email_id, "message": "邮件已恢复"}
 
 
@@ -445,12 +456,15 @@ def permanent_delete_email(email_id: int, db: Session = Depends(get_db)):
     ).first()
     
     if not e:
-        raise HTTPException(status_code=404, detail="Email not found in trash")
+        logger.warning(f"永久删除失败: 回收站中无此邮件", extra={"email_id": email_id})
+        raise ResourceNotFoundException("回收站中无此邮件", details={"email_id": email_id})
     
     # 真正删除
+    logger.warning(f"永久删除邮件", extra={"email_id": email_id, "subject": e.subject})
     db.delete(e)
     db.commit()
     
+    logger.info(f"邮件已永久删除", extra={"email_id": email_id})
     return {"deleted": True, "id": email_id, "message": "邮件已永久删除"}
 
 
@@ -463,11 +477,13 @@ def empty_trash(db: Session = Depends(get_db)):
     
     count = len(deleted_emails)
     
+    logger.warning(f"清空回收站", extra={"count": count})
     for email in deleted_emails:
         db.delete(email)
     
     db.commit()
     
+    logger.info(f"回收站已清空", extra={"count": count})
     return {"deleted": True, "count": count, "message": f"已清空回收站，删除了 {count} 封邮件"}
 
 
@@ -486,10 +502,12 @@ def download_attachment(
     # 查询邮件
     email = db.query(EmailHistory).filter(EmailHistory.id == email_id).first()
     if not email:
-        raise HTTPException(status_code=404, detail="邮件不存在")
+        logger.warning(f"下载附件失败: 邮件不存在", extra={"email_id": email_id})
+        raise ResourceNotFoundException("邮件不存在", details={"email_id": email_id})
     
     if not email.attachments:
-        raise HTTPException(status_code=404, detail="该邮件没有附件")
+        logger.warning(f"下载附件失败: 无附件", extra={"email_id": email_id})
+        raise ResourceNotFoundException("该邮件没有附件", details={"email_id": email_id})
     
     # 解析附件数据
     try:
@@ -497,21 +515,25 @@ def download_attachment(
         attachments = json.loads(attachments_str)
         
         if not isinstance(attachments, list) or attachment_index >= len(attachments):
-            raise HTTPException(status_code=404, detail="附件索引无效")
+            logger.warning(f"附件索引无效", extra={"email_id": email_id, "index": attachment_index})
+            raise ResourceNotFoundException("附件索引无效", details={"email_id": email_id, "index": attachment_index})
         
         attachment = attachments[attachment_index]
         
         # 获取存储的文件路径
         file_path = attachment.get('file_path')
         if not file_path:
-            raise HTTPException(status_code=404, detail="附件文件不存在")
+            logger.warning(f"附件文件路径不存在", extra={"email_id": email_id, "index": attachment_index})
+            raise ResourceNotFoundException("附件文件不存在", details={"email_id": email_id})
         
         file_path = Path(file_path)
         if not file_path.exists():
-            raise HTTPException(status_code=404, detail="附件文件已丢失")
+            logger.warning(f"附件文件已丢失", extra={"email_id": email_id, "file_path": str(file_path)})
+            raise ResourceNotFoundException("附件文件已丢失", details={"email_id": email_id, "file_path": str(file_path)})
         
         # 返回文件
         original_filename = attachment.get('filename', 'attachment')
+        logger.info(f"下载附件", extra={"email_id": email_id, "filename": original_filename})
         
         return FileResponse(
             path=str(file_path),
@@ -519,11 +541,12 @@ def download_attachment(
             media_type=attachment.get('content_type', 'application/octet-stream')
         )
         
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="附件数据解析失败")
+    except json.JSONDecodeError as e:
+        logger.error(f"附件数据解析失败", extra={"email_id": email_id, "error": str(e)})
+        raise BusinessException("附件数据解析失败")
     except Exception as e:
-        print(f"❌ 下载附件失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"下载失败: {str(e)}")
+        logger.error(f"下载附件失败", extra={"email_id": email_id, "error": str(e)})
+        raise BusinessException(f"下载失败: {str(e)}")
 
 
 @router.get("/email_history/{email_id}/images/{image_name}")
@@ -541,13 +564,15 @@ def get_email_image(
     # 验证邮件是否存在
     email = db.query(EmailHistory).filter(EmailHistory.id == email_id).first()
     if not email:
-        raise HTTPException(status_code=404, detail="邮件不存在")
+        logger.warning(f"获取图片失败: 邮件不存在", extra={"email_id": email_id})
+        raise ResourceNotFoundException("邮件不存在", details={"email_id": email_id})
     
     # 图片文件路径
     file_path = Path('attachments') / image_name
     
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail="图片文件不存在")
+        logger.warning(f"图片文件不存在", extra={"email_id": email_id, "image_name": image_name})
+        raise ResourceNotFoundException("图片文件不存在", details={"email_id": email_id, "image_name": image_name})
     
     # 根据文件扩展名判断 MIME 类型
     ext = file_path.suffix.lower()
@@ -563,6 +588,7 @@ def get_email_image(
     media_type = mime_types.get(ext, 'application/octet-stream')
     
     # 返回图片文件
+    logger.debug(f"返回邮件图片", extra={"email_id": email_id, "image_name": image_name})
     return FileResponse(
         path=str(file_path),
         media_type=media_type

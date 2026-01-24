@@ -6,13 +6,87 @@ AI 邮件分析器
 import os
 import json
 import traceback
+import logging
 from typing import Dict, Optional, List
 import httpx
 from datetime import datetime
 
+# 导入缓存装饰器
+from src.utils.cache import async_cached
+
+logger = logging.getLogger(__name__)
+
+
+class CircuitBreaker:
+    """简单的熔断器实现"""
+    
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60):
+        """
+        初始化熔断器
+        
+        参数:
+            failure_threshold: 失败阈值（连续失败多少次后开启熔断）
+            recovery_timeout: 恢复超时时间（秒）
+        """
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = "closed"  # closed/open/half_open
+    
+    def is_open(self) -> bool:
+        """检查熔断器是否开启"""
+        if self.state == "closed":
+            return False
+        
+        # 检查是否可以尝试恢复
+        if self.state == "open":
+            if self.last_failure_time:
+                elapsed = (datetime.utcnow().timestamp() - self.last_failure_time)
+                if elapsed >= self.recovery_timeout:
+                    self.state = "half_open"
+                    logger.info("熔断器进入半开状态，尝试恢复")
+                    return False
+        
+        return self.state == "open"
+    
+    def record_success(self):
+        """记录成功调用"""
+        self.failure_count = 0
+        if self.state == "half_open":
+            self.state = "closed"
+            logger.info("熔断器已恢复到关闭状态")
+    
+    def record_failure(self):
+        """记录失败调用"""
+        self.failure_count += 1
+        self.last_failure_time = datetime.utcnow().timestamp()
+        
+        if self.failure_count >= self.failure_threshold:
+            self.state = "open"
+            logger.warning(f"熔断器已开启（连续失败{self.failure_count}次）")
+    
+    async def call(self, func, *args, **kwargs):
+        """通过熔断器调用函数"""
+        if self.is_open():
+            raise CircuitBreakerException("熔断器已开启，暂时无法调用AI服务")
+        
+        try:
+            result = await func(*args, **kwargs)
+            self.record_success()
+            return result
+        except Exception as e:
+            self.record_failure()
+            raise e
+
+
+class CircuitBreakerException(Exception):
+    """熔断器异常"""
+    pass
+
 
 class EmailAIAnalyzer:
-    """邮件 AI 分析器"""
+    """邮件 AI 分析器（带缓存和熔断）"""
     
     def __init__(self, api_key: str = None, base_url: str = None):
         """
@@ -26,6 +100,10 @@ class EmailAIAnalyzer:
         self.base_url = base_url or os.getenv('AIHUBMIX_BASE_URL', 'https://aihubmix.com/v1')
         self.timeout = 30.0
         
+        # 初始化熔断器（5次失败后开启，60秒后尝试恢复）
+        self.circuit_breaker = CircuitBreaker(failure_threshold=5, recovery_timeout=60)
+        
+    @async_cached(prefix="email_analysis", ttl=3600)  # 缓存1小时
     async def analyze_email(
         self, 
         subject: str, 
@@ -34,7 +112,7 @@ class EmailAIAnalyzer:
         model: str = "gpt-4o-mini"
     ) -> Dict:
         """
-        分析邮件内容
+        分析邮件内容（带缓存和熔断）
         
         参数:
             subject: 邮件主题
@@ -46,30 +124,66 @@ class EmailAIAnalyzer:
             分析结果字典
         """
         try:
-            # 构建分析提示词
-            prompt = self._build_analysis_prompt(subject, body, from_email)
+            # 使用熔断器调用API
+            result = await self.circuit_breaker.call(
+                self._analyze_with_api,
+                subject, body, from_email, model
+            )
+            return result
             
-            # 调用 AI API
-            result = await self._call_api(prompt, model)
-            
-            # 解析结果
-            analysis = self._parse_analysis_result(result)
-            
+        except CircuitBreakerException as e:
+            logger.warning(f"熔断器开启，使用规则引擎降级: {str(e)}")
+            # 降级到规则引擎
             return {
                 "success": True,
-                "analysis": analysis,
-                "model": model,
+                "analysis": self._rule_based_analysis(subject, body, from_email),
+                "model": "rule_engine",
+                "fallback": True,
                 "analyzed_at": datetime.utcnow().isoformat()
             }
             
         except Exception as e:
-            print(f"❌ AI 分析失败: {str(e)}")
-            traceback.print_exc()
-            return {
-                "success": False,
-                "error": str(e),
-                "analysis": self._get_default_analysis()
-            }
+            logger.error(f"AI 分析失败: {str(e)}", exc_info=True)
+            # 尝试使用规则引擎
+            try:
+                return {
+                    "success": True,
+                    "analysis": self._rule_based_analysis(subject, body, from_email),
+                    "model": "rule_engine",
+                    "fallback": True,
+                    "error": str(e),
+                    "analyzed_at": datetime.utcnow().isoformat()
+                }
+            except:
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "analysis": self._get_default_analysis()
+                }
+    
+    async def _analyze_with_api(
+        self,
+        subject: str,
+        body: str,
+        from_email: str = None,
+        model: str = "gpt-4o-mini"
+    ) -> Dict:
+        """通过API进行分析（内部方法）"""
+        # 构建分析提示词
+        prompt = self._build_analysis_prompt(subject, body, from_email)
+        
+        # 调用 AI API
+        result = await self._call_api(prompt, model)
+        
+        # 解析结果
+        analysis = self._parse_analysis_result(result)
+        
+        return {
+            "success": True,
+            "analysis": analysis,
+            "model": model,
+            "analyzed_at": datetime.utcnow().isoformat()
+        }
     
     def _build_analysis_prompt(self, subject: str, body: str, from_email: str = None) -> str:
         """构建分析提示词（严格按照系统方案）"""
@@ -319,14 +433,89 @@ class EmailAIAnalyzer:
         }
         return mapping.get(stage, "spam")  # 默认为垃圾营销
     
+    def _rule_based_analysis(self, subject: str, body: str, from_email: str = None) -> Dict:
+        """基于规则的降级分析"""
+        text = f"{subject} {body}".lower()
+        
+        # 关键词规则库
+        keywords = {
+            'urgent': ['urgent', 'asap', '紧急', '急'],
+            'quotation': ['quote', 'price', '报价', '价格', 'quotation'],
+            'inquiry': ['inquiry', 'interested', 'want to know', '咨询', '询问'],
+            'order': ['order', 'purchase', 'buy', '订单', '购买'],
+            'sample': ['sample', '样品', 'trial'],
+            'complaint': ['complaint', 'problem', 'issue', '投诉', '问题'],
+        }
+        
+        # 情感分析
+        sentiment = "neutral"
+        if any(word in text for word in ['thank', 'great', 'excellent', '满意']):
+            sentiment = "positive"
+        elif any(word in text for word in ['complaint', 'angry', 'disappointed', '投诉']):
+            sentiment = "negative"
+        elif any(word in text for word in keywords['urgent']):
+            sentiment = "urgent"
+        
+        # 分类判断
+        category = "inquiry"
+        if any(word in text for word in keywords['order']):
+            category = "order"
+        elif any(word in text for word in keywords['quotation']):
+            category = "quotation"
+        elif any(word in text for word in keywords['sample']):
+            category = "sample"
+        elif any(word in text for word in keywords['complaint']):
+            category = "complaint"
+        
+        # 紧急度判断
+        urgency_level = "medium"
+        if any(word in text for word in keywords['urgent']):
+            urgency_level = "high"
+        
+        # 购买意向
+        purchase_intent = "medium"
+        if any(word in text for word in keywords['order']):
+            purchase_intent = "high"
+        elif 'price' in text or '价格' in text:
+            purchase_intent = "high"
+        
+        logger.info(f"规则引擎分析完成: 分类={category}, 情感={sentiment}, 紧急度={urgency_level}")
+        
+        return {
+            "sentiment": sentiment,
+            "category": category,
+            "urgency_level": urgency_level,
+            "purchase_intent": purchase_intent,
+            "summary": f"基于规则引擎分析: {category}",
+            "key_points": ["使用规则引擎进行分析"],
+            "suggested_tags": [category],
+            "next_action": "人工复核",
+            "customer_type": "未知",
+            "requires_urgent_response": urgency_level == "high",
+            "business_stage": self._map_category_to_stage(category)
+        }
+    
+    def _map_category_to_stage(self, category: str) -> str:
+        """将分类映射到业务阶段"""
+        mapping = {
+            "inquiry": "新客询盘",
+            "quotation": "报价跟进",
+            "sample": "样品阶段",
+            "order": "订单确认",
+            "complaint": "售后服务",
+            "follow_up": "老客维护",
+            "spam": "垃圾营销"
+        }
+        return mapping.get(category, "新客询盘")
+    
     def _get_default_analysis(self) -> Dict:
-        """获取默认分析结果（当 AI 分析失败时）"""
+        """获取默认分析结果（当所有方法都失败时）"""
         return {
             "sentiment": "neutral",
-            "category": "spam",  # 改为spam（垃圾营销）
+            "category": "spam",
             "urgency_level": "medium",
             "purchase_intent": "low",
-            "summary": "AI 分析失败，需要人工处理",
+            "summary": "分析失败，需要人工处理",
             "key_points": [],
             "suggested_tags": [],
             "next_action": "人工审核邮件",

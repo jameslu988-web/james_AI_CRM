@@ -13,6 +13,7 @@ import StorageIcon from '@mui/icons-material/Storage'
 import SecurityIcon from '@mui/icons-material/Security'
 import NotificationsIcon from '@mui/icons-material/Notifications'
 import VpnKeyIcon from '@mui/icons-material/VpnKey'
+import RuleIcon from '@mui/icons-material/Rule'
 
 export const SystemSettings = () => {
   const navigate = useNavigate()
@@ -23,6 +24,10 @@ export const SystemSettings = () => {
 
   const handleProxyClick = () => {
     navigate('/proxy-settings')
+  }
+
+  const handleAutoReplyClick = () => {
+    navigate('/auto_reply_rules')
   }
 
   return (
@@ -156,6 +161,32 @@ export const SystemSettings = () => {
                 <Typography variant="h6">代理配置</Typography>
                 <Typography variant="body2" color="text.secondary">
                   配置网络代理用于访问国际服务
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* 自动回复配置 */}
+        <Grid item xs={12} md={6}>
+          <Paper
+            onClick={handleAutoReplyClick}
+            sx={{
+              p: 3,
+              cursor: 'pointer',
+              '&:hover': {
+                boxShadow: 4,
+                transform: 'translateY(-2px)',
+                transition: 'all 0.3s',
+              },
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <RuleIcon sx={{ fontSize: 40, color: 'secondary.main', mr: 2 }} />
+              <Box>
+                <Typography variant="h6">自动回复配置</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  AI自动回复规则及审核设置
                 </Typography>
               </Box>
             </Box>

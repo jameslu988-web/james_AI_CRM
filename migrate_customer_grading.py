@@ -2,21 +2,19 @@
 执行客户分级字段迁移
 """
 import os
-os.environ['DB_TYPE'] = 'postgresql'
-os.environ['DB_USER'] = 'postgres'
-os.environ['DB_PASSWORD'] = 'postgres123'
-os.environ['DB_HOST'] = 'localhost'
-os.environ['DB_PORT'] = '5432'
-os.environ['DB_NAME'] = 'crm_system'
+from dotenv import load_dotenv
+
+# 🔥 加载环境配置
+load_dotenv()
 
 import psycopg2
 
 conn = psycopg2.connect(
-    host='localhost',
-    port=5432,
-    database='crm_system',
-    user='postgres',
-    password='postgres123'
+    host=os.getenv('DB_HOST', 'localhost'),
+    port=int(os.getenv('DB_PORT', '5432')),
+    database=os.getenv('DB_NAME', 'crm_system'),
+    user=os.getenv('DB_USER', 'postgres'),
+    password=os.getenv('DB_PASSWORD', 'postgres123')
 )
 
 cursor = conn.cursor()

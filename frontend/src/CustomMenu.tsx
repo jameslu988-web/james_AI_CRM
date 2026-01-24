@@ -25,6 +25,8 @@ import BusinessCenterIcon from '@mui/icons-material/BusinessCenter'
 import StorageIcon from '@mui/icons-material/Storage'
 import SmartToyIcon from '@mui/icons-material/SmartToy'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
+import RuleIcon from '@mui/icons-material/Rule'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 
 export const CustomMenu = () => {
   const navigate = useNavigate()
@@ -130,6 +132,11 @@ export const CustomMenu = () => {
             to="/signatures"
             primaryText="邮件签名"
             leftIcon={<DrawIcon />}
+          />
+          <Menu.Item
+            to="/approval_tasks"
+            primaryText="审核中心"
+            leftIcon={<CheckCircleIcon />}
           />
         </Box>
       </Collapse>

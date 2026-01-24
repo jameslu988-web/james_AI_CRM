@@ -3,11 +3,12 @@
 """
 import os
 import json
-from src.crm.database import get_session, Product, KnowledgeFAQ, PricingRule, CaseStudy
+from dotenv import load_dotenv
 
-# 设置环境变量为 PostgreSQL
-os.environ['DB_TYPE'] = 'postgresql'
-os.environ['DB_PASSWORD'] = 'postgres123'
+# 🔥 加载环境配置
+load_dotenv()
+
+from src.crm.database import get_session, Product, KnowledgeFAQ, PricingRule, CaseStudy
 
 
 def add_sample_products():

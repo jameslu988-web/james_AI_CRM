@@ -25,6 +25,8 @@ import { VectorKnowledgeList } from './vectorKnowledge'
 import { PromptTemplateList } from './promptTemplates'
 import { SalesFunnel } from './SalesFunnel'
 import { TagList, TagCreate, TagEdit } from './tags'
+import { AutoReplyRuleList, AutoReplyRuleCreate, AutoReplyRuleEdit } from './autoReplyRules'
+import { ApprovalTaskList, ApprovalTaskShow } from './approvalTasks'
 
 export default function App() {
   return (
@@ -54,6 +56,8 @@ export default function App() {
       <Resource name="vector_knowledge" options={{ label: '向量知识库' }} list={VectorKnowledgeList} />
       <Resource name="prompt_templates" options={{ label: 'AI提示词模板' }} list={PromptTemplateList} />
       <Resource name="tags" options={{ label: '客户标签' }} list={TagList} create={TagCreate} edit={TagEdit} />
+      <Resource name="auto_reply_rules" options={{ label: '自动回复规则' }} list={AutoReplyRuleList} create={AutoReplyRuleCreate} edit={AutoReplyRuleEdit} />
+      <Resource name="approval_tasks" options={{ label: '审核中心' }} list={ApprovalTaskList} show={ApprovalTaskShow} />
       <CustomRoutes>
         <Route path="/customer-settings" element={<CustomerSettings />} />
         <Route path="/system-settings" element={<SystemSettings />} />

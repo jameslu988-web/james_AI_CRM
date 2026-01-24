@@ -147,6 +147,76 @@ export const dataProvider = {
       })
     }
     
+    // 自动回复规则特殊处理
+    if (resource === 'auto_reply_rules') {
+      const { page, perPage } = params.pagination
+      const { field, order } = params.sort
+      
+      const query: any = {
+        _start: (page - 1) * perPage,
+        _end: page * perPage,
+        _sort: field,
+        _order: order,
+      }
+      
+      // 添加筛选参数
+      if (params.filter) {
+        Object.keys(params.filter).forEach(key => {
+          const value = params.filter[key]
+          if (value !== undefined && value !== null && value !== '') {
+            query[key] = value
+          }
+        })
+      }
+      
+      const url = `${apiUrl}/auto_reply_rules?${new URLSearchParams(query).toString()}`
+      
+      return httpClient(url).then(({ headers, json }) => {
+        const contentRange = headers.get('content-range')
+        const total = contentRange ? parseInt(contentRange.split('/').pop() || '0', 10) : json.length
+        
+        return {
+          data: json,
+          total: total,
+        }
+      })
+    }
+    
+    // 审核任务特殊处理
+    if (resource === 'approval_tasks') {
+      const { page, perPage } = params.pagination
+      const { field, order } = params.sort
+      
+      const query: any = {
+        _start: (page - 1) * perPage,
+        _end: page * perPage,
+        _sort: field,
+        _order: order,
+      }
+      
+      // 添加筛选参数
+      if (params.filter) {
+        Object.keys(params.filter).forEach(key => {
+          const value = params.filter[key]
+          if (value !== undefined && value !== null && value !== '') {
+            query[key] = value
+          }
+        })
+      }
+      
+      const url = `${apiUrl}/approval_tasks?${new URLSearchParams(query).toString()}`
+      
+      return httpClient(url).then(({ headers, json }) => {
+        const contentRange = headers.get('content-range')
+        const total = contentRange ? parseInt(contentRange.split('/').pop() || '0', 10) : json.length
+        
+        return {
+          data: json,
+          total: total,
+        }
+      })
+    }
+    
     // 其他资源使用默认处理
     return baseDataProvider.getList(resource, params)
   },
@@ -165,6 +235,18 @@ export const dataProvider = {
       }).then(({ json }) => ({ data: { id: params.id } }))
     }
     
+    if (resource === 'auto_reply_rules') {
+      return httpClient(`${apiUrl}/auto_reply_rules/${params.id}`, {
+        method: 'DELETE',
+      }).then(({ json }) => ({ data: { id: params.id } }))
+    }
+    
+    if (resource === 'approval_tasks') {
+      return httpClient(`${apiUrl}/approval_tasks/${params.id}`, {
+        method: 'DELETE',
+      }).then(({ json }) => ({ data: { id: params.id } }))
+    }
+    
     return baseDataProvider.delete(resource, params)
   },
   
@@ -173,6 +255,18 @@ export const dataProvider = {
     if (resource === 'prompt_templates') {
       return httpClient(`${apiUrl}/prompt-templates/${params.id}`).then(({ json }) => ({
         data: { ...json, id: json.id }
+      }))
+    }
+    
+    if (resource === 'auto_reply_rules') {
+      return httpClient(`${apiUrl}/auto_reply_rules/${params.id}`).then(({ json }) => ({
+        data: json
+      }))
+    }
+    
+    if (resource === 'approval_tasks') {
+      return httpClient(`${apiUrl}/approval_tasks/${params.id}`).then(({ json }) => ({
+        data: json
       }))
     }
     
@@ -188,6 +282,20 @@ export const dataProvider = {
       }).then(({ json }) => ({ data: { ...json, id: json.id } }))
     }
     
+    if (resource === 'auto_reply_rules') {
+      return httpClient(`${apiUrl}/auto_reply_rules/${params.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(params.data),
+      }).then(({ json }) => ({ data: json }))
+    }
+    
+    if (resource === 'approval_tasks') {
+      return httpClient(`${apiUrl}/approval_tasks/${params.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(params.data),
+      }).then(({ json }) => ({ data: json }))
+    }
+    
     return baseDataProvider.update(resource, params)
   },
   
@@ -198,6 +306,20 @@ export const dataProvider = {
         method: 'POST',
         body: JSON.stringify(params.data),
       }).then(({ json }) => ({ data: { ...json, id: json.id } }))
+    }
+    
+    if (resource === 'auto_reply_rules') {
+      return httpClient(`${apiUrl}/auto_reply_rules`, {
+        method: 'POST',
+        body: JSON.stringify(params.data),
+      }).then(({ json }) => ({ data: json }))
+    }
+    
+    if (resource === 'approval_tasks') {
+      return httpClient(`${apiUrl}/approval_tasks`, {
+        method: 'POST',
+        body: JSON.stringify(params.data),
+      }).then(({ json }) => ({ data: json }))
     }
     
     return baseDataProvider.create(resource, params)

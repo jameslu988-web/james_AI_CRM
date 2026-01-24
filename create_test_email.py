@@ -150,10 +150,9 @@ def main():
     print("=" * 70)
     print()
     
-    # 检查环境变量
-    import os
-    os.environ['DB_TYPE'] = 'postgresql'
-    os.environ['DB_PASSWORD'] = 'postgres123'
+    # 🔥 加载环境配置
+    from dotenv import load_dotenv
+    load_dotenv()
     
     # 创建测试邮件
     email_id = create_test_email()

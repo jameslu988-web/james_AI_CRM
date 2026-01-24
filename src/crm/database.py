@@ -1,5 +1,9 @@
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+
+# 🔥 加载.env文件（必须在第一时间执行）
+load_dotenv()
 
 from sqlalchemy import (
     Column,
@@ -36,6 +40,39 @@ else:
     DB_PATH = Path("data")
     DB_PATH.mkdir(parents=True, exist_ok=True)
     DATABASE_URL = f"sqlite:///{DB_PATH / 'customers.db'}"
+
+
+# 数据库连接池配置
+def get_engine():
+    """创建数据库引擎（带连接池优化）"""
+    pool_size = int(os.getenv('DATABASE_POOL_SIZE', 20))
+    max_overflow = int(os.getenv('DATABASE_MAX_OVERFLOW', 40))
+    pool_timeout = int(os.getenv('DATABASE_POOL_TIMEOUT', 30))
+    pool_recycle = int(os.getenv('DATABASE_POOL_RECYCLE', 3600))
+    
+    return create_engine(
+        DATABASE_URL, 
+        echo=False, 
+        future=True,
+        pool_size=pool_size,              # 连接池大小
+        max_overflow=max_overflow,        # 超出pool_size后最多创建的连接数
+        pool_timeout=pool_timeout,        # 获取连接的超时时间（秒）
+        pool_recycle=pool_recycle,        # 连接回收时间（1小时）
+        pool_pre_ping=True,               # 连接前ping测试
+        connect_args={
+            "connect_timeout": 10,
+            "options": "-c statement_timeout=30000"  # SQL执行超时(30秒)
+        } if DB_TYPE == 'postgresql' else {}
+    )
+
+
+engine = get_engine()
+SessionLocal = sessionmaker(
+    bind=engine, 
+    autoflush=False, 
+    autocommit=False,
+    expire_on_commit=False  # 避免Session外访问对象报错
+)
 
 # 用户角色关联表（多对多）
 user_roles = Table(
@@ -802,17 +839,94 @@ class CustomerTag(Base):
     updated_at = Column(DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.now)
 
 
-def get_engine():
-    return create_engine(DATABASE_URL, echo=False, future=True)
+class AutoReplyRule(Base):
+    """自动回复规则表 - 管理AI自动回复触发规则"""
+    __tablename__ = "auto_reply_rules"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    rule_name = Column(String(100), nullable=False)  # 规则名称
+    email_category = Column(String(50), nullable=False, index=True)  # 邮件类型：inquiry/quotation/sample等
+    
+    # 规则开关
+    is_enabled = Column(Boolean, default=True, server_default=text('true'), nullable=False)  # 是否启用
+    auto_generate_reply = Column(Boolean, default=True, server_default=text('true'), nullable=False)  # 是否自动生成回复
+    require_approval = Column(Boolean, default=True, server_default=text('true'), nullable=False)  # 是否需要人工审核
+    
+    # 审核设置
+    approval_method = Column(String(20), default='system')  # 审核方式：wechat/email/system
+    approval_timeout_hours = Column(Integer, default=24)  # 审核超时时间（小时）
+    
+    # 优先级
+    priority = Column(Integer, default=0)  # 规则优先级（数字越大优先级越高）
+    
+    # 额外触发条件（JSON格式）
+    conditions = Column(Text, nullable=True)  # {"purchase_intent_min": 50, "not_spam": true}
+    
+    # 统计字段
+    triggered_count = Column(Integer, default=0)  # 触发次数
+    approved_count = Column(Integer, default=0)  # 通过审核次数
+    rejected_count = Column(Integer, default=0)  # 拒绝次数
+    
+    # 标准时间字段
+    created_at = Column(DateTime, nullable=True, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, nullable=True, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.now)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+
+class ApprovalTask(Base):
+    """审核任务表 - 管理AI生成邮件的人工审核"""
+    __tablename__ = "approval_tasks"
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email_id = Column(Integer, ForeignKey("email_history.id"), nullable=False, index=True)  # 关联原始邮件
+    rule_id = Column(Integer, ForeignKey("auto_reply_rules.id"), nullable=True)  # 关联触发的规则
+    
+    # 草稿内容
+    draft_subject = Column(String(500), nullable=False)  # 回复邮件主题
+    draft_body = Column(Text, nullable=False)  # 回复邮件正文（纯文本）
+    draft_html = Column(Text, nullable=True)  # 回复邮件正文（HTML）
+    
+    # 审核状态
+    status = Column(String(20), default='pending', nullable=False, index=True)  # pending/approved/rejected/revised/expired
+    
+    # 审核方式
+    approval_method = Column(String(20), default='system')  # 审核方式
+    
+    # 通知状态
+    notification_sent_at = Column(DateTime, nullable=True)  # 通知发送时间
+    notification_status = Column(String(20), nullable=True)  # success/failed
+    
+    # 审核信息
+    approved_by = Column(String(100), nullable=True)  # 审核人
+    approved_at = Column(DateTime, nullable=True)  # 审核时间
+    rejection_reason = Column(Text, nullable=True)  # 拒绝原因
+    
+    # 修改历史
+    revision_count = Column(Integer, default=0)  # 修改次数
+    revision_history = Column(Text, nullable=True)  # 修改历史（JSON格式）
+    
+    # 自动发送设置
+    auto_send_on_approval = Column(Boolean, default=True, server_default=text('true'), nullable=False)  # 审核通过后自动发送
+    sent_at = Column(DateTime, nullable=True)  # 实际发送时间
+    sent_email_id = Column(Integer, nullable=True)  # 发送后的邮件ID
+    
+    # 超时设置
+    timeout_at = Column(DateTime, nullable=True)  # 超时时间点
+    
+    # AI分析摘要（用于审核参考）
+    ai_analysis_summary = Column(Text, nullable=True)  # AI分析摘要（JSON格式）
+    
+    # 标准时间字段
+    created_at = Column(DateTime, nullable=True, server_default=text('CURRENT_TIMESTAMP'))
+    updated_at = Column(DateTime, nullable=True, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.now)
 
 
 def init_db():
-    engine = get_engine()
+    """初始化数据库（创建所有表）"""
     Base.metadata.create_all(engine)
     return engine
 
 
 def get_session():
-    engine = get_engine()
-    SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    """Get database session (legacy)"""
     return SessionLocal()

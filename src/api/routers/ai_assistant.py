@@ -18,6 +18,24 @@ router = APIRouter()
 # 初始化AI助手
 ai_writer = AIEmailWriter()
 
+# 🔥 全局异步OpenAI客户端（用于翻译等异步操作）
+import os
+import sys
+from openai import AsyncOpenAI
+
+# 🔥 添加调试日志
+print(f"\n[Init] 初始化OpenAI客户端...", file=sys.stderr, flush=True)
+print(f"[Init] API Key: {os.getenv('AIHUBMIX_API_KEY', 'sk-5dn0RF7nn31mpHNjEfC5Ca1579F447418aE48e7b0d8b18F7')[:20]}...", file=sys.stderr, flush=True)
+print(f"[Init] Base URL: {os.getenv('AIHUBMIX_BASE_URL', 'https://aihubmix.com/v1')}", file=sys.stderr, flush=True)
+
+async_openai_client = AsyncOpenAI(
+    api_key=os.getenv('AIHUBMIX_API_KEY', 'sk-5dn0RF7nn31mpHNjEfC5Ca1579F447418aE48e7b0d8b18F7'),
+    base_url=os.getenv('AIHUBMIX_BASE_URL', 'https://aihubmix.com/v1'),
+    timeout=30.0  # 🔥 设置默认超时
+)
+
+print(f"[Init] OpenAI客户端初始化完成", file=sys.stderr, flush=True)
+
 
 def get_db():
     db = get_session()
@@ -107,12 +125,59 @@ def polish_email(request: PolishRequest):
 
 
 @router.post("/ai/translate")
-def translate_email(request: TranslateRequest):
-    """翻译邮件"""
+async def translate_email(request: TranslateRequest):
+    """翻译邮件（异步优化）"""
+    import sys
+    print(f"\n[Translate] 收到翻译请求", flush=True)
+    print(f"[Translate] 内容长度: {len(request.content)}", flush=True)
+    print(f"[Translate] 目标语言: {request.target_lang}", flush=True)
+    
     try:
-        translated = ai_writer.translate_email(request.content, request.target_lang)
+        # 语言映射
+        lang_map = {
+            'zh': '简体中文',
+            'en': 'English',
+            'es': 'Spanish',
+            'fr': 'French',
+            'de': 'German',
+            'ja': 'Japanese',
+            'ko': 'Korean'
+        }
+        target_language = lang_map.get(request.target_lang, request.target_lang)
+        print(f"[Translate] 目标语言名: {target_language}", flush=True)
+        
+        # 🔥 使用全局异步客户端，提升性能
+        print(f"[Translate] 开始调用OpenAI API...", flush=True)
+        response = await async_openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": f"你是一个专业的翻译助手。请将提供的文本翻译成{target_language}。\n\n翻译要求：\n1. 保持原文的格式（段落、换行等）\n2. 保持专业的语气\n3. 如果有HTML标签，请保留HTML标签，只翻译内容\n4. 直接返回翻译结果，不要添加额外说明"
+                },
+                {
+                    "role": "user",
+                    "content": request.content
+                }
+            ],
+            temperature=0.3,
+            max_tokens=4000,
+            timeout=30  # 🔥 添加超时设置
+        )
+        
+        print(f"[Translate] OpenAI API调用成功", flush=True)
+        translated = response.choices[0].message.content.strip()
+        print(f"[Translate] 译文长度: {len(translated)}", flush=True)
+        
         return {"original": request.content, "translated": translated, "target_lang": request.target_lang}
+        
     except Exception as e:
+        import traceback
+        print(f"\n[Translate] 错误类型: {type(e).__name__}", file=sys.stderr, flush=True)
+        print(f"[Translate] 错误信息: {str(e)}", file=sys.stderr, flush=True)
+        print(f"[Translate] 堆栈跟踪:", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
         raise HTTPException(status_code=500, detail=f"翻译失败: {str(e)}")
 
 

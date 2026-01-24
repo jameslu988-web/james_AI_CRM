@@ -3,12 +3,16 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Response, BackgroundTasks
 from pydantic import BaseModel, EmailStr
+from sqlalchemy.exc import SQLAlchemyError
+import logging
 
 from ...crm.database import get_session, EmailAccount, User, EmailHistory, Customer
 from ...email_system.receiver import EmailReceiver
 from .auth import get_current_active_user
+from ..exceptions import BusinessException, DatabaseException, ResourceNotFoundException
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 # Pydantic模型
@@ -116,7 +120,8 @@ async def get_email_account(
     db.close()
     
     if not account:
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"邮箱账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
     return account
 
@@ -136,7 +141,8 @@ async def create_email_account(
     
     if existing:
         db.close()
-        raise HTTPException(status_code=400, detail="该邮箱账户已存在")
+        logger.warning(f"创建邮箱账户失败: 账户已存在", extra={"email": account_data.email_address})
+        raise BusinessException("该邮箱账户已存在", details={"email": account_data.email_address})
     
     # 测试连接
     try:
@@ -150,12 +156,14 @@ async def create_email_account(
         
         if not receiver.connect():
             db.close()
-            raise HTTPException(status_code=400, detail="邮箱连接测试失败，请检查配置")
+            logger.error(f"邮箱连接测试失败", extra={"email": account_data.email_address})
+            raise BusinessException("邮箱连接测试失败，请检查配置")
         
         receiver.disconnect()
     except Exception as e:
         db.close()
-        raise HTTPException(status_code=400, detail=f"邮箱配置错误: {str(e)}")
+        logger.error(f"邮箱配置错误", extra={"email": account_data.email_address, "error": str(e)})
+        raise BusinessException(f"邮箱配置错误: {str(e)}")
     
     # 创建账户
     new_account = EmailAccount(
@@ -183,6 +191,7 @@ async def create_email_account(
     db.refresh(new_account)
     db.close()
     
+    logger.info(f"创建邮箱账户成功", extra={"account_id": new_account.id, "email": new_account.email_address})
     return new_account
 
 
@@ -198,7 +207,8 @@ async def update_email_account(
     
     if not account:
         db.close()
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"更新邮箱账户失败: 账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
     # 更新字段（过滤空密码）
     update_data = account_data.dict(exclude_unset=True)
@@ -220,6 +230,7 @@ async def update_email_account(
     db.refresh(account)
     db.close()
     
+    logger.info(f"更新邮箱账户成功", extra={"account_id": account_id, "fields": list(update_data.keys())})
     return account
 
 
@@ -234,12 +245,15 @@ async def delete_email_account(
     
     if not account:
         db.close()
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"删除邮箱账户失败: 账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
+    logger.warning(f"删除邮箱账户", extra={"account_id": account_id, "email": account.email_address})
     db.delete(account)
     db.commit()
     db.close()
     
+    logger.info(f"删除邮箱账户成功", extra={"account_id": account_id})
     return {"message": "邮箱账户已删除"}
 
 
@@ -257,7 +271,8 @@ async def test_email_account(
     
     if not account:
         db.close()
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"测试邮箱失败: 账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
     error_details = []
     
@@ -266,8 +281,10 @@ async def test_email_account(
         try:
             ip = socket.gethostbyname(account.imap_host)
             error_details.append(f"✅ DNS解析成功: {account.imap_host} -> {ip}")
+            logger.debug(f"DNS解析成功", extra={"account_id": account_id, "host": account.imap_host, "ip": ip})
         except socket.gaierror as e:
             db.close()
+            logger.error(f"DNS解析失败", extra={"account_id": account_id, "host": account.imap_host})
             return {
                 "success": False,
                 "message": f"DNS解析失败: {account.imap_host}",
@@ -329,6 +346,7 @@ async def test_email_account(
                 connection.logout()
                 
                 db.close()
+                logger.info(f"IMAP连接测试成功", extra={"account_id": account_id, "email": account.email_address})
                 return {
                     "success": True,
                     "message": "IMAP连接成功！所有测试通过",
@@ -340,6 +358,7 @@ async def test_email_account(
             except imaplib.IMAP4.error as e:
                 db.close()
                 error_msg = str(e).lower()
+                logger.error(f"IMAP登录失败", extra={"account_id": account_id, "error": str(e)})
                 
                 return {
                     "success": False,
@@ -420,7 +439,8 @@ async def test_smtp_connection(
     
     if not account.smtp_host or not account.smtp_password:
         db.close()
-        raise HTTPException(status_code=400, detail="SMTP配置不完整，请先配置SMTP服务器和密码")
+        logger.warning(f"SMTP配置不完整", extra={"account_id": account_id})
+        raise BusinessException("SMTP配置不完整，请先配置SMTP服务器和密码")
     
     try:
         import smtplib
@@ -438,6 +458,7 @@ async def test_smtp_connection(
                     account.smtp_password
                 )
                 db.close()
+                logger.info(f"SMTP连接测试成功(SSL)", extra={"account_id": account_id, "port": 465})
                 return {
                     "success": True,
                     "message": f"SMTP连接成功！\n\n服务器: {account.smtp_host}:{account.smtp_port}\n用户名: {account.smtp_username or account.email_address}\n连接类型: SSL",
@@ -471,6 +492,7 @@ async def test_smtp_connection(
                     account.smtp_password
                 )
                 db.close()
+                logger.info(f"SMTP连接测试成功", extra={"account_id": account_id})
                 return {
                     "success": True,
                     "message": f"SMTP连接成功！\n\n服务器: {account.smtp_host}:{account.smtp_port}\n用户名: {account.smtp_username or account.email_address}",
@@ -480,6 +502,7 @@ async def test_smtp_connection(
                 
     except smtplib.SMTPAuthenticationError as e:
         db.close()
+        logger.error(f"SMTP认证失败", extra={"account_id": account_id, "error": str(e)})
         return {
             "success": False,
             "message": f"❌ SMTP认证失败！\n\n错误: {str(e)}\n\n请检查：\n1. SMTP密码/授权码是否正确\n2. QQ/163邮箱需使用“授权码”，不是邮箱密码\n3. Gmail需使用“应用专用密码”",
@@ -487,6 +510,7 @@ async def test_smtp_connection(
         }
     except smtplib.SMTPConnectError as e:
         db.close()
+        logger.error(f"SMTP连接失败", extra={"account_id": account_id, "error": str(e)})
         return {
             "success": False,
             "message": f"❌ 无法连接到SMTP服务器！\n\n错误: {str(e)}\n\n请检查：\n1. SMTP服务器地址是否正确\n2. SMTP端口是否正确（465/587）\n3. 网络连接是否正常\n4. 防火墙是否阻止连接",
@@ -494,6 +518,7 @@ async def test_smtp_connection(
         }
     except Exception as e:
         db.close()
+        logger.error(f"SMTP测试失败", extra={"account_id": account_id, "error": str(e)})
         return {
             "success": False,
             "message": f"❌ SMTP测试失败！\n\n错误: {str(e)}",
@@ -523,7 +548,8 @@ async def sync_emails(
     
     if not account:
         db.close()
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"同步邮件失败: 账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
     # 首次同步：自动设置日期限制（最近30天）
     if not account.first_sync_completed and not since_date:
@@ -531,6 +557,7 @@ async def sync_emails(
         since_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
     
     # 设置同步状态为进行中
+    logger.info(f"开始同步邮件", extra={"account_id": account_id, "email": account.email_address, "limit": limit, "only_unseen": only_unseen})
     account.sync_status = 'syncing'
     account.updated_at = datetime.utcnow()
     db.commit()
@@ -616,6 +643,7 @@ def sync_emails_background(
                     ).first()
                 
                 # 创建邮件历史记录
+                logger.debug(f"保存邮件", extra={"account_id": account_id, "subject": email_data['subject'][:50]})
                 email_history = EmailHistory(
                     customer_id=customer.id if customer else None,
                     direction='inbound',
@@ -648,12 +676,12 @@ def sync_emails_background(
         
         db.commit()
         receiver.disconnect()
-        print(f"✅ 后台同步完成: 成功同步 {emails_saved}/{len(emails)} 封邮件，跳过重复 {emails_duplicated} 封")
+        logger.info(f"后台同步完成", extra={"account_id": account_id, "saved": emails_saved, "total": len(emails), "duplicated": emails_duplicated})
         
     except Exception as e:
         account.sync_status = 'error'
         db.commit()
-        print(f"❌ 后台同步失败: {str(e)}")
+        logger.error(f"后台同步失败", extra={"account_id": account_id, "error": str(e)})
         
     finally:
         db.close()
@@ -670,11 +698,13 @@ async def toggle_account_status(
     
     if not account:
         db.close()
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"切换账户状态失败: 账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
     account.is_active = not account.is_active
     account.updated_at = datetime.utcnow()
     
+    logger.info(f"切换账户状态", extra={"account_id": account_id, "is_active": account.is_active})
     db.commit()
     db.refresh(account)
     db.close()
@@ -701,9 +731,11 @@ async def check_account_bounces(
     db.close()
     
     if not account:
-        raise HTTPException(status_code=404, detail="邮箱账户不存在")
+        logger.warning(f"检查退信失败: 账户不存在", extra={"account_id": account_id})
+        raise ResourceNotFoundException("邮箱账户不存在", details={"account_id": account_id})
     
     # 导入任务并添加到后台任务
+    logger.info(f"启动退信检查任务", extra={"account_id": account_id, "email": account.email_address})
     from ...tasks.email_tasks import check_bounce_emails_task
     background_tasks.add_task(check_bounce_emails_task, account_id)
     
@@ -724,6 +756,7 @@ async def check_all_accounts_bounces(
     该操作将在后台异步执行
     """
     # 导入任务并添加到后台任务
+    logger.info(f"启动全部账户退信检查任务")
     from ...tasks.email_tasks import check_all_accounts_bounce_emails
     background_tasks.add_task(check_all_accounts_bounce_emails)
     

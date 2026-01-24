@@ -1,13 +1,10 @@
 """
 为收件箱(inbound)的邮件设置business_stage，以便测试筛选功能
 """
-import os
-os.environ['DB_TYPE'] = 'postgresql'
-os.environ['DB_USER'] = 'postgres'
-os.environ['DB_PASSWORD'] = 'postgres123'
-os.environ['DB_HOST'] = 'localhost'
-os.environ['DB_PORT'] = '5432'
-os.environ['DB_NAME'] = 'crm_system'
+from dotenv import load_dotenv
+
+# 🔥 加载环境配置
+load_dotenv()
 
 from src.crm.database import get_engine
 from sqlalchemy import text

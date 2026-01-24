@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>翻译功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>🧪 翻译API测试工具</h1>
+    
+    <div class="test-section">
+        <h3>测试1: 检测API地址</h3>
+        <p>当前主机: <strong id="hostname"></strong></p>
+        <p>API地址: <strong id="apiUrl"></strong></p>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试2: 翻译简单文本</h3>
+        <button onclick="testSimpleTranslate()">测试翻译 "Hello World"</button>
+        <div id="simpleResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试3: 翻译HTML内容</h3>
+        <button onclick="testHtmlTranslate()">测试翻译HTML</button>
+        <div id="htmlResult" class="result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h3>测试4: 检查CORS</h3>
+        <button onclick="testCORS()">测试跨域请求</button>
+        <div id="corsResult" class="result"></div>
+    </div>
+
+    <script>
+        const apiHost = window.location.hostname;
+        const apiUrl = `http://${apiHost}:8001/api/ai/translate`;
+        
+        document.getElementById('hostname').textContent = apiHost;
+        document.getElementById('apiUrl').textContent = apiUrl;
+        
+        async function testSimpleTranslate() {
+            const resultDiv = document.getElementById('simpleResult');
+            resultDiv.innerHTML = '⏳ 测试中...';
+            
+            try {
+                console.log('[Test1] 开始测试简单翻译');
+                console.log('[Test1] API地址:', apiUrl);
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: 'Hello World',
+                        target_lang: 'zh'
+                    })
+                });
+                
+                console.log('[Test1] 响应状态:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('[Test1] 响应数据:', result);
+                    
+                    resultDiv.innerHTML = `<span class="success">✅ 成功！</span>\n\n` +
+                        `原文: Hello World\n` +
+                        `译文: ${result.translated}\n` +
+                        `状态码: ${response.status}`;
+                } else {
+                    const errorText = await response.text();
+                    console.error('[Test1] 错误响应:', errorText);
+                    resultDiv.innerHTML = `<span class="error">❌ 失败</span>\n\n` +
+                        `状态码: ${response.status}\n` +
+                        `错误: ${errorText}`;
+                }
+            } catch (error) {
+                console.error('[Test1] 异常:', error);
+                resultDiv.innerHTML = `<span class="error">❌ 连接错误</span>\n\n` +
+                    `错误类型: ${error.name}\n` +
+                    `错误信息: ${error.message}\n` +
+                    `这通常意味着:\n` +
+                    `1. 后端服务未启动（端口8001）\n` +
+                    `2. 防火墙阻止了连接\n` +
+                    `3. 手机和电脑不在同一网络`;
+            }
+        }
+        
+        async function testHtmlTranslate() {
+            const resultDiv = document.getElementById('htmlResult');
+            resultDiv.innerHTML = '⏳ 测试中...';
+            
+            try {
+                const htmlContent = '<p>This is a <strong>test</strong> email.</p>';
+                
+                console.log('[Test2] 开始测试HTML翻译');
+                console.log('[Test2] 内容:', htmlContent);
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: htmlContent,
+                        target_lang: 'zh'
+                    })
+                });
+                
+                console.log('[Test2] 响应状态:', response.status);
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    console.log('[Test2] 响应数据:', result);
+                    
+                    resultDiv.innerHTML = `<span class="success">✅ 成功！</span>\n\n` +
+                        `原文HTML: ${htmlContent}\n` +
+                        `译文HTML: ${result.translated}\n` +
+                        `状态码: ${response.status}`;
+                } else {
+                    const errorText = await response.text();
+                    resultDiv.innerHTML = `<span class="error">❌ 失败</span>\n\n` +
+                        `状态码: ${response.status}\n` +
+                        `错误: ${errorText}`;
+                }
+            } catch (error) {
+                console.error('[Test2] 异常:', error);
+                resultDiv.innerHTML = `<span class="error">❌ 连接错误</span>\n\n` +
+                    `错误: ${error.message}`;
+            }
+        }
+        
+        async function testCORS() {
+            const resultDiv = document.getElementById('corsResult');
+            resultDiv.innerHTML = '⏳ 测试中...';
+            
+            try {
+                console.log('[Test3] 测试CORS预检请求');
+                
+                // 先测试OPTIONS请求
+                const optionsResponse = await fetch(apiUrl, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Access-Control-Request-Method': 'POST',
+                        'Access-Control-Request-Headers': 'Content-Type'
+                    }
+                });
+                
+                console.log('[Test3] OPTIONS响应状态:', optionsResponse.status);
+                console.log('[Test3] CORS头:', {
+                    'Access-Control-Allow-Origin': optionsResponse.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': optionsResponse.headers.get('Access-Control-Allow-Methods'),
+                    'Access-Control-Allow-Headers': optionsResponse.headers.get('Access-Control-Allow-Headers')
+                });
+                
+                resultDiv.innerHTML = `<span class="success">✅ CORS配置正常</span>\n\n` +
+                    `Allow-Origin: ${optionsResponse.headers.get('Access-Control-Allow-Origin') || '未设置'}\n` +
+                    `Allow-Methods: ${optionsResponse.headers.get('Access-Control-Allow-Methods') || '未设置'}\n` +
+                    `Allow-Headers: ${optionsResponse.headers.get('Access-Control-Allow-Headers') || '未设置'}`;
+                
+            } catch (error) {
+                console.error('[Test3] 异常:', error);
+                resultDiv.innerHTML = `<span class="error">❌ CORS测试失败</span>\n\n` +
+                    `错误: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 """
 检查用户账号
 """
-import os
-from src.crm.database import get_session, User
+from dotenv import load_dotenv
 
-# 设置环境变量
-os.environ['DB_TYPE'] = 'postgresql'
-os.environ['DB_PASSWORD'] = 'postgres123'
+# 🔥 加载环境配置
+load_dotenv()
+
+from src.crm.database import get_session, User
 
 def check_users():
     db = get_session()

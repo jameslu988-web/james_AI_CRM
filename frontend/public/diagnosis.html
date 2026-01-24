@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网络诊断</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .test-item {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 3px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .success { background: #4caf50; color: white; }
+        .error { background: #f44336; color: white; }
+        .loading { background: #ff9800; color: white; }
+        pre {
+            background: #263238;
+            color: #aed581;
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        h2 { color: #333; margin-top: 0; }
+        .info { color: #666; font-size: 14px; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 网络诊断工具</h1>
+    
+    <div class="test-item">
+        <h2>📱 设备信息</h2>
+        <div class="info">
+            <strong>User Agent:</strong><br>
+            <pre id="userAgent"></pre>
+        </div>
+        <div class="info">
+            <strong>屏幕尺寸:</strong> <span id="screenSize"></span>
+        </div>
+        <div class="info">
+            <strong>当前URL:</strong> <span id="currentUrl"></span>
+        </div>
+    </div>
+
+    <div class="test-item">
+        <h2>🌐 后端API测试</h2>
+        <p>
+            测试API: <code id="apiUrl"></code>
+            <span id="apiStatus" class="status loading">测试中...</span>
+        </p>
+        <div id="apiResult"></div>
+    </div>
+
+    <div class="test-item">
+        <h2>🎨 前端资源测试</h2>
+        <p>
+            React Admin页面: <a href="/#/approval_tasks/10/show" target="_blank">点击访问</a>
+            <span id="reactStatus" class="status loading">检查中...</span>
+        </p>
+        <div id="reactResult"></div>
+    </div>
+
+    <div class="test-item">
+        <h2>📋 测试结果</h2>
+        <div id="summary"></div>
+    </div>
+
+    <script>
+        const hostname = window.location.hostname;
+        const apiUrl = `http://${hostname}:8001/api/approval_tasks/10`;
+        
+        // 显示设备信息
+        document.getElementById('userAgent').textContent = navigator.userAgent;
+        document.getElementById('screenSize').textContent = 
+            `${window.innerWidth} x ${window.innerHeight}`;
+        document.getElementById('currentUrl').textContent = window.location.href;
+        document.getElementById('apiUrl').textContent = apiUrl;
+
+        // 测试后端API
+        console.log('开始测试API:', apiUrl);
+        
+        fetch(apiUrl)
+            .then(response => {
+                console.log('API响应状态:', response.status);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('API数据:', data);
+                document.getElementById('apiStatus').className = 'status success';
+                document.getElementById('apiStatus').textContent = '✓ 成功';
+                document.getElementById('apiResult').innerHTML = `
+                    <div class="info">
+                        <strong>✓ 后端API正常</strong><br>
+                        任务ID: ${data.id}<br>
+                        状态: ${data.status}<br>
+                        主题: ${data.draft_subject}<br>
+                        回复内容长度: ${data.draft_body ? data.draft_body.length : 0} 字符
+                    </div>
+                `;
+                updateSummary('api', true, '后端API响应正常');
+            })
+            .catch(error => {
+                console.error('API错误:', error);
+                document.getElementById('apiStatus').className = 'status error';
+                document.getElementById('apiStatus').textContent = '✗ 失败';
+                document.getElementById('apiResult').innerHTML = `
+                    <div class="info" style="color: red;">
+                        <strong>✗ 后端API连接失败</strong><br>
+                        错误: ${error.message}<br><br>
+                        <strong>可能原因:</strong><br>
+                        1. 后端服务未启动 (端口8001)<br>
+                        2. 防火墙阻止了连接<br>
+                        3. 网络连接问题
+                    </div>
+                `;
+                updateSummary('api', false, `后端API失败: ${error.message}`);
+            });
+
+        // 测试React加载
+        setTimeout(() => {
+            try {
+                // 检查React Admin是否加载
+                const reactRoot = document.querySelector('#root');
+                if (reactRoot) {
+                    document.getElementById('reactStatus').className = 'status success';
+                    document.getElementById('reactStatus').textContent = '✓ 已加载';
+                    document.getElementById('reactResult').innerHTML = `
+                        <div class="info">
+                            <strong>✓ React Admin已加载</strong>
+                        </div>
+                    `;
+                    updateSummary('react', true, 'React Admin已加载');
+                } else {
+                    throw new Error('未找到React根元素');
+                }
+            } catch (error) {
+                document.getElementById('reactStatus').className = 'status error';
+                document.getElementById('reactStatus').textContent = '✗ 未加载';
+                document.getElementById('reactResult').innerHTML = `
+                    <div class="info" style="color: red;">
+                        <strong>✗ React Admin未正确加载</strong><br>
+                        这是正常的，因为这是一个独立的诊断页面
+                    </div>
+                `;
+                updateSummary('react', false, 'React Admin未加载（正常）');
+            }
+        }, 1000);
+
+        const summaryResults = {};
+        
+        function updateSummary(test, success, message) {
+            summaryResults[test] = { success, message };
+            
+            const summaryDiv = document.getElementById('summary');
+            let html = '<ul style="list-style: none; padding: 0;">';
+            
+            for (const [key, result] of Object.entries(summaryResults)) {
+                const icon = result.success ? '✓' : '✗';
+                const color = result.success ? 'green' : 'red';
+                html += `<li style="color: ${color}; margin: 5px 0;">${icon} ${result.message}</li>`;
+            }
+            
+            html += '</ul>';
+            
+            if (Object.keys(summaryResults).length >= 2) {
+                const allSuccess = Object.values(summaryResults).every(r => r.success);
+                if (allSuccess) {
+                    html += `
+                        <div style="background: #e8f5e9; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                            <strong style="color: #2e7d32;">✓ 所有测试通过！</strong><br>
+                            如果React Admin页面仍然空白，请尝试：<br>
+                            1. 清除浏览器缓存<br>
+                            2. 在浏览器控制台查看JavaScript错误<br>
+                            3. 访问: <a href="/#/approval_tasks/10/show">/#/approval_tasks/10/show</a>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div style="background: #ffebee; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                            <strong style="color: #c62828;">部分测试失败</strong><br>
+                            请根据上面的错误信息排查问题
+                        </div>
+                    `;
+                }
+            }
+            
+            summaryDiv.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

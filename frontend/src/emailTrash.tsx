@@ -26,7 +26,9 @@ const RelativeTimeField = ({ source }: { source: string }) => {
   if (!record || !record[source]) return null
   
   const getRelativeTime = (dateString: string) => {
-    const date = new Date(dateString)
+    // 🔥 修复时区问题：后端返回的是UTC时间
+    const utcString = dateString.endsWith('Z') ? dateString : dateString + 'Z'
+    const date = new Date(utcString)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffMinutes = Math.floor(diffMs / (1000 * 60))
@@ -43,7 +45,9 @@ const RelativeTimeField = ({ source }: { source: string }) => {
   }
   
   const getFullTime = (dateString: string) => {
-    const date = new Date(dateString)
+    // 🔥 修复时区问题
+    const utcString = dateString.endsWith('Z') ? dateString : dateString + 'Z'
+    const date = new Date(utcString)
     return date.toLocaleString('zh-CN', {
       year: 'numeric',
       month: '2-digit',

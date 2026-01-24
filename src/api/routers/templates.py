@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
 from typing import List
+import logging
 
 from src.crm.database import get_session, EmailTemplate
 from ..schemas import TemplateCreate, TemplateUpdate, TemplateOut
+from ..exceptions import BusinessException, DatabaseException, ResourceNotFoundException
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def get_db():
@@ -71,36 +75,63 @@ def list_templates(
 def get_template(tid: int, db: Session = Depends(get_db)):
     t = db.query(EmailTemplate).filter(EmailTemplate.id == tid).first()
     if not t:
-        raise HTTPException(status_code=404, detail="Template not found")
+        logger.warning(f"邮件模板不存在", extra={"template_id": tid})
+        raise ResourceNotFoundException("邮件模板不存在", details={"template_id": tid})
     return t
 
 
 @router.post("/email_templates", response_model=TemplateOut)
 def create_template(t_in: TemplateCreate, db: Session = Depends(get_db)):
-    t = EmailTemplate(**t_in.dict())
-    db.add(t)
-    db.commit()
-    db.refresh(t)
-    return t
+    try:
+        logger.info(f"创建邮件模板", extra={"name": t_in.name, "category": t_in.category})
+        t = EmailTemplate(**t_in.dict())
+        db.add(t)
+        db.commit()
+        db.refresh(t)
+        logger.info(f"创建邮件模板成功", extra={"template_id": t.id, "name": t.name})
+        return t
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"创建邮件模板失败: 数据库错误", extra={"error": str(e)})
+        raise DatabaseException(f"创建邮件模板失败: {str(e)}")
 
 
 @router.put("/email_templates/{tid}", response_model=TemplateOut)
 def update_template(tid: int, t_upd: TemplateUpdate, db: Session = Depends(get_db)):
     t = db.query(EmailTemplate).filter(EmailTemplate.id == tid).first()
     if not t:
-        raise HTTPException(status_code=404, detail="Template not found")
-    for k, v in t_upd.dict(exclude_unset=True).items():
-        setattr(t, k, v)
-    db.commit()
-    db.refresh(t)
-    return t
+        logger.warning(f"更新邮件模板失败: 模板不存在", extra={"template_id": tid})
+        raise ResourceNotFoundException("邮件模板不存在", details={"template_id": tid})
+    
+    try:
+        update_data = t_upd.dict(exclude_unset=True)
+        logger.info(f"更新邮件模板", extra={"template_id": tid, "fields": list(update_data.keys())})
+        for k, v in update_data.items():
+            setattr(t, k, v)
+        db.commit()
+        db.refresh(t)
+        logger.info(f"更新邮件模板成功", extra={"template_id": tid})
+        return t
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"更新邮件模板失败: 数据库错误", extra={"template_id": tid, "error": str(e)})
+        raise DatabaseException(f"更新邮件模板失败: {str(e)}")
 
 
 @router.delete("/email_templates/{tid}")
 def delete_template(tid: int, db: Session = Depends(get_db)):
     t = db.query(EmailTemplate).filter(EmailTemplate.id == tid).first()
     if not t:
-        raise HTTPException(status_code=404, detail="Template not found")
-    db.delete(t)
-    db.commit()
-    return {"deleted": True, "id": tid}
+        logger.warning(f"删除邮件模板失败: 模板不存在", extra={"template_id": tid})
+        raise ResourceNotFoundException("邮件模板不存在", details={"template_id": tid})
+    
+    try:
+        logger.warning(f"删除邮件模板", extra={"template_id": tid, "name": t.name})
+        db.delete(t)
+        db.commit()
+        logger.info(f"删除邮件模板成功", extra={"template_id": tid})
+        return {"deleted": True, "id": tid}
+    except SQLAlchemyError as e:
+        db.rollback()
+        logger.error(f"删除邮件模板失败: 数据库错误", extra={"template_id": tid, "error": str(e)})
+        raise DatabaseException(f"删除邮件模板失败: {str(e)}")

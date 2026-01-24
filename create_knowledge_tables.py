@@ -1,12 +1,12 @@
 """
 创建知识库相关数据表
 """
-import os
-from src.crm.database import get_engine, Base
+from dotenv import load_dotenv
 
-# 设置环境变量为 PostgreSQL
-os.environ['DB_TYPE'] = 'postgresql'
-os.environ['DB_PASSWORD'] = 'postgres123'
+# 🔥 加载环境配置
+load_dotenv()
+
+from src.crm.database import get_engine, Base
 
 def create_knowledge_tables():
     """创建知识库相关的表"""

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f0f0;
+        }
+        .box {
+            background: white;
+            padding: 20px;
+            margin: 10px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success { background: #4caf50; color: white; padding: 10px; border-radius: 4px; }
+        .error { background: #f44336; color: white; padding: 10px; border-radius: 4px; }
+        pre { background: #263238; color: #aed581; padding: 10px; border-radius: 4px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>🧪 连接测试</h1>
+    
+    <div class="box">
+        <h2>1. 页面加载</h2>
+        <div class="success">✓ HTML页面已成功加载</div>
+    </div>
+
+    <div class="box">
+        <h2>2. JavaScript执行</h2>
+        <div id="jsTest">检测中...</div>
+    </div>
+
+    <div class="box">
+        <h2>3. 后端API连接</h2>
+        <div id="apiTest">检测中...</div>
+    </div>
+
+    <div class="box">
+        <h2>4. 设备信息</h2>
+        <pre id="deviceInfo">加载中...</pre>
+    </div>
+
+    <script>
+        // 测试JavaScript执行
+        document.getElementById('jsTest').innerHTML = '<div class="success">✓ JavaScript正常执行</div>';
+        
+        // 显示设备信息
+        const hostname = window.location.hostname;
+        document.getElementById('deviceInfo').textContent = 
+            `URL: ${window.location.href}\n` +
+            `Hostname: ${hostname}\n` +
+            `User Agent: ${navigator.userAgent}\n` +
+            `Screen: ${window.innerWidth}x${window.innerHeight}`;
+        
+        // 测试API连接
+        const apiUrl = `http://${hostname}:8001/api/approval_tasks/11`;
+        document.getElementById('apiTest').innerHTML = `<div style="color:#666;">正在连接: ${apiUrl}</div>`;
+        
+        fetch(apiUrl)
+            .then(response => {
+                if (response.ok) {
+                    document.getElementById('apiTest').innerHTML = 
+                        `<div class="success">✓ API连接成功 (HTTP ${response.status})</div>`;
+                    return response.json();
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            })
+            .then(data => {
+                document.getElementById('apiTest').innerHTML += 
+                    `<pre>任务ID: ${data.id}\n状态: ${data.status}\n主题: ${data.draft_subject}</pre>`;
+            })
+            .catch(error => {
+                document.getElementById('apiTest').innerHTML = 
+                    `<div class="error">✗ API连接失败: ${error.message}<br>URL: ${apiUrl}</div>`;
+            });
+    </script>
+</body>
+</html>
